@@ -15,7 +15,6 @@
 
 # Fortran module files
 *.mod
-*.smod
 
 # Compiled Static libraries
 *.lai
@@ -27,3 +26,31 @@
 *.exe
 *.out
 *.app
+
+#Python files 
+*.pyc
+
+#Movies
+*.mpg
+
+#Redis
+*.rdb
+
+#Make junk 
+*.make
+*.cmake 
+*.internal
+*.includecache
+*.bin
+*.dir
+*.marks
+
+# Directories
+mqttclient/CMakeFiles/**
+build/**
+mqttclient/countdownlatch/build/**
+mqttclient/build/**
+CMakeFiles/**
+**/*.cmake
+
+
