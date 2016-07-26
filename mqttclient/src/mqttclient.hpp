@@ -80,6 +80,7 @@ public:
     }
   }
 
+  //TODO: Implement subscribe method!
   void subscribe(std::string topic) { }
 
   void async_publish(std::string topic, std::string message) {
