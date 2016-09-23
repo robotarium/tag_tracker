@@ -55,6 +55,7 @@ the use of this software, even if advised of the possibility of such damage.
 #include <fstream>
 #include <mqttclient.hpp>
 
+/* Camera calibration constants */
 double OFFSET_X_PX = -30;
 double OFFSET_Y_PX = -9;
 
@@ -62,12 +63,66 @@ double SCALE_X = 1.18 / 979.0;
 double SCALE_Y = 0.78 / 647.0;
 double ROTATION = (0.75 * M_PI/180.0);
 
-// For convenience
+/* Convenience declaration */
 using json = nlohmann::json;
 
+/* Name spaces */
 using namespace std;
 using namespace cv;
 
+/* Global variables */
+json powerData;
+
+VideoCapture inputVideo;
+VideoWriter outputVideo;
+
+/* -------------------------------------
+ *		MQTT Callback functions 
+ * ------------------------------------- */
+void powerDataCallback(std::string topic, std::string message) {
+  bool debug = false;
+
+  /* Parse ID from topic
+   * topic names are of the form ID/power_data
+   */
+  int id = -1;
+  std::string tmp;
+  std::stringstream ss(topic);
+  ss >> id >> tmp;
+
+	if(debug) {
+		std::cout << "Topic				: " << topic << std::endl;
+		std::cout << "Message			: " << message << std::endl;
+		std::cout << "Extracted ID: " << id << std::endl;
+	}
+
+  /* Parse message string into JSON dictionary */
+  try {
+	auto data = json::parse(message);
+
+	/* Write battery voltage to global powerData JSON dictionary */
+	/* Check if an entry vBat exists in the message */
+	if (data.find("vBat") != data.end()) {
+			if(debug) {
+			std::cout << "Power data in callback: " << data["vBat"] << std::endl;
+			}
+
+			/* Check if robot id has been extracted from topic */
+			if(id >= 0) {
+			powerData[std::to_string(id)] = data["vBat"];
+			}
+	}
+  } catch (const std::exception& e) {
+
+  }
+}
+
+/* Cast function to standard function pointer */
+std::function<void(std::string, std::string)> stdf_powerDataCallback = &powerDataCallback;
+
+/* -------------------------------------
+ *		Calibration utility functions 
+ * ------------------------------------- */
 double rotate_x(double x, double y) {
 	return cos(ROTATION)*x - sin(ROTATION)*y;
 }
@@ -76,29 +131,9 @@ double rotate_y(double x, double y) {
 	return sin(ROTATION)*x + cos(ROTATION)*y;
 }
 
-namespace {
-	const char* about = "Basic marker detection";
-	const char* keys  =
-	        "{d        |       | dictionary: DICT_4X4_50=0, DICT_4X4_100=1, DICT_4X4_250=2,"
-	        "DICT_4X4_1000=3, DICT_5X5_50=4, DICT_5X5_100=5, DICT_5X5_250=6, DICT_5X5_1000=7, "
-	        "DICT_6X6_50=8, DICT_6X6_100=9, DICT_6X6_250=10, DICT_6X6_1000=11, DICT_7X7_50=12,"
-	        "DICT_7X7_100=13, DICT_7X7_250=14, DICT_7X7_1000=15, DICT_ARUCO_ORIGINAL = 16}"
-	        "{v        |       | Input from video file, if ommited, input comes from camera }"
-	        "{ci       | 0     | Camera id if input doesnt come from video (-v) }"
-	        "{c        |       | Camera intrinsic parameters. Needed for camera pose }"
-	        "{l        | 0.1   | Marker side lenght (in meters). Needed for correct scale in camera pose }"
-	        "{dp       |       | File of marker detector parameters }"
-	        "{r        |       | show rejected candidates too }"
-	        "{vo       |       | Record video to output file }"
-	        "{rM       |       | Render detected markers into output video file }"
-	        "{m        |       | Use metric units in position updates of LCM messages }"
-					"{od       |       | Output file for video }"
-					//"{a        |       | Tag aliases }"
-					"{mqtt        |       |  MQTT setup information}"
-				  "{h        | localhost      | MQTT broker }"
-					"{p        | 1884      | MQTT port }";
-}
-
+/* -------------------------------------
+ *		Time utility functions 
+ * ------------------------------------- */
 /* Get current date/time, format is YYYY-MM-DD.HH:mm:ss */
 const std::string currentDateTime() {
   time_t     now = time(0);
@@ -148,8 +183,9 @@ static inline timespec timeAdd(timespec oldTime, timespec time) {
   }
 }
 
-/**
- */
+/* --------------------------------------------------
+ *		Camera/tracker configuration functions 
+ * -------------------------------------------------- */
 static bool readCameraParameters(string filename, Mat &camMatrix, Mat &distCoeffs) {
     FileStorage fs(filename, FileStorage::READ);
     if(!fs.isOpened())
@@ -159,8 +195,6 @@ static bool readCameraParameters(string filename, Mat &camMatrix, Mat &distCoeff
     return true;
 }
 
-/**
- */
 static bool readDetectorParameters(string filename, Ptr<aruco::DetectorParameters> &params) {
     FileStorage fs(filename, FileStorage::READ);
     if(!fs.isOpened())
@@ -188,11 +222,37 @@ static bool readDetectorParameters(string filename, Ptr<aruco::DetectorParameter
     return true;
 }
 
+/* --------------------------------------
+ *		Command line help text
+ * -------------------------------------- */
+namespace {
+	const char* about = "Basic marker detection";
+	const char* keys  =
+	        "{d        |       | dictionary: DICT_4X4_50=0, DICT_4X4_100=1, DICT_4X4_250=2,"
+	        "DICT_4X4_1000=3, DICT_5X5_50=4, DICT_5X5_100=5, DICT_5X5_250=6, DICT_5X5_1000=7, "
+	        "DICT_6X6_50=8, DICT_6X6_100=9, DICT_6X6_250=10, DICT_6X6_1000=11, DICT_7X7_50=12,"
+	        "DICT_7X7_100=13, DICT_7X7_250=14, DICT_7X7_1000=15, DICT_ARUCO_ORIGINAL = 16}"
+	        "{v        |       | Input from video file, if ommited, input comes from camera }"
+	        "{ci       | 0     | Camera id if input doesnt come from video (-v) }"
+	        "{c        |       | Camera intrinsic parameters. Needed for camera pose }"
+	        "{l        | 0.1   | Marker side lenght (in meters). Needed for correct scale in camera pose }"
+	        "{dp       |       | File of marker detector parameters }"
+	        "{r        |       | show rejected candidates too }"
+	        "{vo       |       | Record video to output file }"
+	        "{rM       |       | Render detected markers into output video file }"
+	        "{m        |       | Use metric units in position updates of MQTT messages }"
+			"{od       |       | Output file for video }"
+			//"{a        |       | Tag aliases }"
+			"{mqtt        |       |  MQTT setup information}"
+			 "{h        | localhost      | MQTT broker }"
+			"{p        | 1884      | MQTT port }";
+}
+
 /**
 	TODO: GRAB JSON CONFIG FILE FROM COMMAND LINE AND PUBLISH ROBOT ALIASES WITH DATA RATHER THAN TAG IDENTITIES
  */
 int main(int argc, char *argv[]) {
-
+	/* Command line parsing */
     CommandLineParser parser(argc, argv, keys);
     parser.about(about);
 
@@ -206,11 +266,6 @@ int main(int argc, char *argv[]) {
     bool estimatePose = parser.has("c");
     float markerLength = parser.get<float>("l");
     bool useMetric = parser.has("m");
-
-
-    /* Video recording flags */
-    bool recordVideo = parser.has("vo");
-    bool outputVideoWithMarkers = parser.has("rM");
 
     cout << "Use metric coordinates: " << useMetric << endl;
 
@@ -248,7 +303,13 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    VideoCapture inputVideo;
+    /* Video recording flags */
+    bool recordVideo = parser.has("vo");
+    bool recordFrames = false;
+    bool recordFramesFPS = 1;
+    bool outputVideoWithMarkers = parser.has("rM");
+	uint16_t frameNumber = 0;
+
     Size frameSize = Size((int) 1280, (int) 720);
     int waitTime;
 
@@ -269,10 +330,9 @@ int main(int argc, char *argv[]) {
     }
 
     /* Open video writer if video output filename is specified */
-    VideoWriter outputVideo;
 
     double fps = 30;
-    double publishRate = 10;
+    double publishRate = 30;
 
     timespec lastFrameWrite;
     timespec timestepFrame;
@@ -323,27 +383,41 @@ int main(int argc, char *argv[]) {
 		// 	file.close();
 		// }
 
-		json mqtt_setup;
+		// json mqtt_setup;
+		//
+		// if(parser.has("mqtt")) {
+		//
+		// 	string input_filename = parser.get<string>("mqtt");
+		// 	std::cout << "Received mqtt file @ " << input_filename << std::endl;
+		//
+		// 	mqtt_setup = json::parse(input_filename);
+		//
+		// 	// std::ifstream file;
+		// 	// file.open(input_filename, std::ifstream::in);
+		// 	// file >> mqtt_setup;
+		// 	// file.close();
+		// }
+		//
+		// std::cout << mqtt_setup << std::endl;
 
-		if(parser.has("mqtt")) {
+		/* Set MQTT publishing topic */
+		std::string main_publish_channel = "overhead_tracker/all_robot_pose_data"; //mqtt_setup["network_attributes"]["network_sub_attributes"]["all_robot_pose_data"];
 
-			string input_filename = parser.get<string>("mqtt");
-			std::cout << "Received mqtt file @ " << input_filename << std::endl;
-
-			mqtt_setup = json::parse(input_filename);
-
-			// std::ifstream file;
-			// file.open(input_filename, std::ifstream::in);
-			// file >> mqtt_setup;
-			// file.close();
-		}
-
-		std::cout << mqtt_setup << std::endl;
-
-		std::string main_publish_channel = mqtt_setup["network_attributes"]["network_sub_attributes"]["all_robot_pose_data"];
-
+		/* Set up MQTT client */
 		MQTTClient m(parser.get<string>("h"), parser.get<int>("p"));
 		m.start();
+
+		/* Subscribe to power data channels */
+		for (int index = 0; index < 50; index++) {
+			/* Create topic name string */
+			std::string topicName = std::to_string(index) + "/power_data";
+
+			/* Subscribe to MQTT channel */
+			m.subscribe(topicName, stdf_powerDataCallback);
+			std::cout << "Subscribed to topic: " << topicName  << std::endl;
+		}
+		//m.subscribe("0/power_data", stdf_powerDataCallback);
+		//std::cout << "Subscribed to topic: 0/power_data"  << std::endl;
 
     double totalTime = 0;
     int totalIterations = 0;
@@ -400,11 +474,34 @@ int main(int argc, char *argv[]) {
           }
         }
 
-        /* Create and send LCM message */
+		if(recordFrames) {
+          if(timeDelta(lastFrameWrite, clockId) > (1.0 / fps)) {
+            /* Update time stamp of last frame */
+            timestepFrame.tv_sec  = 0;
+            timestepFrame.tv_nsec = (1.0 / recordFramesFPS) * 1E9;
+
+            /* Set time stamp of last frame to old time stamp + 1 / fps sec */
+            lastFrameWrite = timeAdd(lastFrameWrite, timestepFrame);
+
+			/* Set file name */
+			std::string filenameStr = "./frames/00001.jpg";
+			char filename[sizeof(char) * filenameStr.length()];
+			sprintf(filename, "./frames/%05d.jpg", frameNumber);
+			filenameStr = std::string(filename);
+
+			std::cout << "Printing to file: " << filenameStr << std::endl;
+
+			/* Write file */
+			imwrite(filename, image);
+			frameNumber++;
+		  }
+		}
+
+        /* Create and send MQTT message */
         if(ids.size() > 0) {
           if(estimatePose) {
 
-            /* Create LCM message */
+            /* Create MQTT message */
             json message = {};
 
             /* Populate msg with data */
@@ -413,7 +510,6 @@ int main(int argc, char *argv[]) {
 							std::string id = std::to_string(ids[i]);
 
 							//std::cout << "Got id: " << str_id << std::endl;
-
 
 							// if(aliases[str_id] == NULL) {
 							// 	//std::cout << "Didn't have alias for " << str_id << std::endl;
@@ -438,11 +534,16 @@ int main(int argc, char *argv[]) {
               }
               cent = cent / 4.;
 
-              // msg.u[i] = cent.x;
-              // msg.v[i] = cent.y;
-
               message[id]["u"] = cent.x;
               message[id]["v"] = cent.y;
+
+							/* Add battery voltage data if available, if not set a default value of -1 */
+							if(powerData.find(id) != powerData.end()) {
+								//std::cout << "Power data in main event loop: " << powerData[id] << std::endl;
+								message[id]["powerData"] = powerData[id];
+							} else {
+								message[id]["powerData"] = -1;
+							}
 
               /* Publish metric or image coordinates based on input flag -m */
               if(useMetric) {
@@ -483,33 +584,23 @@ int main(int argc, char *argv[]) {
                  *  system right-handed.
                  */
 
-								// std::cout << "Robot x-coordinate: " << (cent.x - frameSize.width/2) << std::endl;
-								// std::cout << "Robot y-coordinate: " << (frameSize.height/2 - cent.y) << std::endl;
-
 								double x = (cent.x - frameSize.width/2 - OFFSET_X_PX)  * SCALE_X;
 								double y = (frameSize.height/2 - cent.y - OFFSET_Y_PX) * SCALE_Y;
 								double x_temp = rotate_x(x, y);
 								y = rotate_y(x, y);
 								x = x_temp;
 
-								// std::cout << "Robot x-coordinate: " << x << std::endl;
-								// std::cout << "Robot y-coordinate: " << y << std::endl;
-
                 message[id]["x"] = x;
                 message[id]["y"] = y;
+
 								// We compute theta using the average of the corner points
                 message[id]["theta"] = atan2(-(dP.y + dP2.y)/2.0, (dP.x + dP2.x)/2.0);
               }
             }
 
-          	//mosquitto_loop(mosq, -1, 1);
-
             std::string s = message.dump();
+			//std::cout << s << std::endl;
 
-						//std::cout << s << std::endl;
-
-            //mosquitto_publish(mosq, NULL, "/tracker/overhead", s.length(), s.c_str(), 1, false);
-						//std::cout << message << std::endl;
             //if(timeDelta(lastWebsocketPublish, clockId) > (1.0 / publishRate)) {
 						m.async_publish(main_publish_channel, s);
 
@@ -539,10 +630,10 @@ int main(int argc, char *argv[]) {
 			double currentTime = (double) (getTickCount() - tick) / getTickFrequency();
 			totalTime += currentTime;
 			totalIterations++;
-			if(totalIterations % 30 == 0) {
-					cout << "Detection Time = " << currentTime * 1000 << " ms "
-							 << "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
-			}
+			//if(totalIterations % 30 == 0) {
+					//cout << "Detection Time = " << currentTime * 1000 << " ms "
+							 //<< "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
+			//}
 
 			tick = (double) getTickCount();
     }
@@ -551,9 +642,6 @@ int main(int argc, char *argv[]) {
     if(inputVideo.isOpened()) {
       inputVideo.release();
     }
-
-    // mosquitto_destroy(mosq);
-    // mosquitto_lib_cleanup();
 
     return 0;
 }
