@@ -37,6 +37,7 @@ the use of this software, even if advised of the possibility of such damage.
 */
 
 #include <opencv2/highgui.hpp>
+#include <opencv2/core.hpp>
 #include <opencv2/aruco.hpp>
 
 #include <vector>
@@ -59,12 +60,16 @@ the use of this software, even if advised of the possibility of such damage.
 #include <mqttclient.hpp>
 
 /* Camera calibration constants */
-double OFFSET_X_PX = -30;
-double OFFSET_Y_PX = -9;
+double OFFSET_X_PX = -31;
+double OFFSET_Y_PX = -2;
 
-double SCALE_X = 1.18 / 979.0;
-double SCALE_Y = 0.78 / 647.0;
-double ROTATION = (0.75 * M_PI/180.0);
+//double SCALE_X = 1.18 / 979.0;
+//double SCALE_Y = 0.78 / 647.0;
+//double ROTATION = (0.75 * M_PI/180.0);
+double SCALE_X = 1.2/1280.0;
+double SCALE_Y = 0.80/720;
+double X_TRANSFORM[] = {-1.2757, 0.0170, -0.0376};
+double Y_TRANSFORM[] = {-0.0227, -1.0748, -0.0073};
 
 /* Convenience declaration */
 using json = nlohmann::json;
@@ -107,8 +112,10 @@ uint16_t frameNumber = 0;
 std::string imageFolderName = "./frames";
 
 /* Codec settings */
-string codec = "MPG";
-int videoCodec = CV_FOURCC('M','P','E','G');
+//string codec = "MPG";
+string codec = "MP4";
+//int videoCodec = CV_FOURCC('M','P','E','G');
+int videoCodec = CV_FOURCC('X', '2', '6', '4');
 
 /* Time stamps */
 const clockid_t clockId = CLOCK_MONOTONIC;
@@ -131,7 +138,7 @@ bool configUpdate = false;
 std::string statusMsg = "";
 
 /* -------------------------------------
- *		MQTT Callback functions 
+ *		MQTT Callback functions
  * ------------------------------------- */
 void powerDataCallback(std::string topic, std::string message) {
   bool debug = false;
@@ -237,9 +244,9 @@ void configCallback(std::string topic, std::string message) {
             // 1.a: create output folder
             // 1.b: open output stream
             // 1.c: set global recording parameters
-            
+
             std::cout << "Run Video: " << run << std::endl;
-            
+
             /* Start recording the video after reading parameters */
             if(getJSONString(data, std::string("folderName"), &folderName) &&
                 getJSONString(data, std::string("fileName"), &fileName) &&
@@ -254,9 +261,9 @@ void configCallback(std::string topic, std::string message) {
               if(createDirectory(folderName)) {
                 /* Open parameterized output stream */
                 if(!outputVideo.isOpened()) {
-                  openOutputVideo(folderName + "/" + fileName, 
+                  openOutputVideo(folderName + "/" + fileName,
                                     videoCodec, recordVideoFPS);
-                  std::cout << "Video file opened: " << folderName + "/" + fileName 
+                  std::cout << "Video file opened: " << folderName + "/" + fileName
                             << std::endl;
 
                   /* Start recording video */
@@ -288,12 +295,12 @@ void configCallback(std::string topic, std::string message) {
         // 1.c: set global recording parameters
         // 2. if run == stop
         // 2.a: set recording flags to false
-            
+
         //* type       : image       [string]
         //* run        : start/stop  [string]
         //* frameRate  : N           [int]
         //* folderName :             [string]
-            
+
         if(getJSONString(data, std::string("run"), &run)) {
           /* Debug output */
           std::cout << "Run Image: " << run << std::endl;
@@ -380,7 +387,7 @@ bool openOutputVideo(std::string filename, int codec, int fps) {
     * - MPG4
     * - MJPG
     */
-  if(outputVideo.open(filename, videoCodec, fps, frameSize, true)) {
+  if(outputVideo.open(filename, videoCo, fps, frameSize, true)) {
     if(outputVideo.isOpened()) {
       std::cout << "Recording video with filename " << filename << std::endl;
       return true;
@@ -396,7 +403,7 @@ std::string getImageFilename(std::string folder, int frameNumber) {
   std::string filenameInit = folder + "/00001.jpg";
   char filenameArray[sizeof(char) * filenameInit.length()];
   sprintf(filenameArray, "%s/%05d.jpg", folder.c_str(), frameNumber);
-  
+
   return std::string(filenameArray);
 }
 
@@ -405,14 +412,14 @@ bool createDirectory(std::string folderName) {
   boost::filesystem::path dir(folderName);
 
   /* Check if directory already exists */
-  if (boost::filesystem::is_directory(dir) && 
+  if (boost::filesystem::is_directory(dir) &&
       boost::filesystem::exists(dir)) {
     return true;
   }
 
   /* Create actual directory */
   if (boost::filesystem::create_directory(dir)) {
-    if (boost::filesystem::is_directory(dir) && 
+    if (boost::filesystem::is_directory(dir) &&
           boost::filesystem::exists(dir)) {
       /* Directory exists */
       std:string dirStr = boost::filesystem::canonical(dir).string();
@@ -427,18 +434,18 @@ bool createDirectory(std::string folderName) {
 }
 
 /* -------------------------------------
- *		Calibration utility functions 
+ *		Calibration utility functions
  * ------------------------------------- */
-double rotate_x(double x, double y) {
-	return cos(ROTATION)*x - sin(ROTATION)*y;
-}
-
-double rotate_y(double x, double y) {
-	return sin(ROTATION)*x + cos(ROTATION)*y;
-}
+// double rotate_x(double x, double y) {
+// 	return cos(ROTATION)*x - sin(ROTATION)*y;
+// }
+//
+// double rotate_y(double x, double y) {
+// 	return sin(ROTATION)*x + cos(ROTATION)*y;
+// }
 
 /* -------------------------------------
- *		Time utility functions 
+ *		Time utility functions
  * ------------------------------------- */
 /* Get current date/time, format is YYYY-MM-DD.HH:mm:ss */
 const std::string currentDateTime() {
@@ -495,8 +502,8 @@ void printDetectionRate() {
   totalIterations++;
 
   if(totalIterations % 30 == 0) {
-    std::cout << "Detection Time = " << currentTime * 1000 << " ms " 
-              << "(Mean = " << 1000 * totalTime / double(totalIterations) 
+    std::cout << "Detection Time = " << currentTime * 1000 << " ms "
+              << "(Mean = " << 1000 * totalTime / double(totalIterations)
               << " ms)" << std::endl;
   }
 
@@ -504,7 +511,7 @@ void printDetectionRate() {
 }
 
 /* --------------------------------------------------
- *		Camera/tracker configuration functions 
+ *		Camera/tracker configuration functions
  * -------------------------------------------------- */
 static bool readCameraParameters(string filename, Mat &camMatrix, Mat &distCoeffs) {
     FileStorage fs(filename, FileStorage::READ);
@@ -605,7 +612,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Add corner refinement in markers */
-	detectorParams->doCornerRefinement = true; 
+	detectorParams->doCornerRefinement = true;
 
 	/* Instantiate dictionary containing tags */
 	Ptr<aruco::Dictionary> dictionary =
@@ -619,8 +626,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Read video/image recording command line parameters */
-	// TODO: remove or replace --> this is only used as file name for 
-	//				input videos (i.e. non-live tracking) 
+	// TODO: remove or replace --> this is only used as file name for
+	//				input videos (i.e. non-live tracking)
 	//				--> not useful for our purposes, we only do live camera
 	//				stream tracking
 	recordVideo = parser.has("vo");
@@ -632,8 +639,8 @@ int main(int argc, char *argv[]) {
   /* Set resolution to 1280 x 720 */
 	inputVideo.set(CV_CAP_PROP_FRAME_WIDTH, frameWidth);
 	inputVideo.set(CV_CAP_PROP_FRAME_HEIGHT, frameHeight);
-	
-	std::cout << "Image size: " << frameSize.width 
+
+	std::cout << "Image size: " << frameSize.width
 						<< " / " << frameSize.height << std::endl;
 
 
@@ -655,10 +662,11 @@ int main(int argc, char *argv[]) {
 	MQTTClient m(parser.get<string>("h"), parser.get<int>("p"));
 	m.start();
 
+
 	/* Set MQTT publishing topic */
-	std::string main_publish_channel  = "overhead_tracker/all_robot_pose_data"; 
-  std::string topicAck              = "overhead_tracker/config_ack"; 
-		
+	std::string main_publish_channel  = "overhead_tracker/all_robot_pose_data";
+  std::string topicAck              = "overhead_tracker/config_ack";
+
 	/* Subscribe to power data channels */
 	for (int index = 0; index < 50; index++) {
 		/* Create topic name string */
@@ -673,7 +681,7 @@ int main(int argc, char *argv[]) {
 	m.subscribe("overhead_tracker/config", stdf_configCallback);
 
   /* --------------------------------------------
-   *                Main event loop 
+   *                Main event loop
    * -------------------------------------------- */
   while(inputVideo.grab()) {
     /* Retrieve new frame from camera */
@@ -687,10 +695,10 @@ int main(int argc, char *argv[]) {
 
     try {
       /* Detect markers and estimate pose */
-      aruco::detectMarkers(image, dictionary, corners, ids, 
+      aruco::detectMarkers(image, dictionary, corners, ids,
                             detectorParams, rejected);
       if(estimatePose && ids.size() > 0) {
-        aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix, 
+        aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix,
                                           distCoeffs, rvecs, tvecs);
       }
 
@@ -802,11 +810,13 @@ int main(int argc, char *argv[]) {
                 *  system right-handed.
                 */
 
-              double x = (cent.x - frameSize.width/2 - OFFSET_X_PX)  * SCALE_X;
-              double y = (frameSize.height/2 - cent.y - OFFSET_Y_PX) * SCALE_Y;
-              double x_temp = rotate_x(x, y);
-              y = rotate_y(x, y);
-              x = x_temp;
+              //double x = (cent.x - frameSize.width/2 - OFFSET_X_PX)  * SCALE_X;
+              //double y = (frameSize.height/2 - cent.y - OFFSET_Y_PX) * SCALE_Y;
+              //double x_temp = rotate_x(x, y);
+              double x_temp = (cent.x - frameSize.width/2)*SCALE_X;
+              double y_temp = (frameSize.height/2 - cent.y)*SCALE_Y;
+              double x = -(x_temp*X_TRANSFORM[0] + y_temp*X_TRANSFORM[1] + X_TRANSFORM[2]);
+              double y = -(x_temp*Y_TRANSFORM[0] + y_temp*Y_TRANSFORM[1] + Y_TRANSFORM[2]);
 
               /* Add coordinates to MQTT message */
               message[id]["x"] = x;

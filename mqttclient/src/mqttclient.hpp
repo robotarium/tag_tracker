@@ -31,7 +31,7 @@ private:
   std::string host;
   ThreadSafeQueue<std::shared_ptr<DataTuple>> q;
   std::shared_ptr<std::thread> runner;
-  std::unordered_map<std::string, std::function<void(std::string)>> subscriptions;
+  std::unordered_map<std::string, std::function<void(std::string, std::string)>> subscriptions;
   int port;
   struct mosquitto *mosq;
 
@@ -95,7 +95,7 @@ public:
   }
 
   //TODO: Implement subscribe method!
-  void subscribe(std::string topic, std::function<void(std::string)> f) {
+  void subscribe(std::string topic, std::function<void(std::string, std::string)> f) {
     //Struct, ?, topic string, QOS
     global_client->subscriptions[topic] = f;
     mosquitto_subscribe(mosq, NULL, topic.c_str(), 1);
@@ -116,7 +116,7 @@ private:
   // Callback for handling incoming MQTT messages
   static void message_callback(struct mosquitto *mosq, void *userdata, const struct mosquitto_message *message) {
     if(global_client->subscriptions.find(message->topic) != global_client->subscriptions.end()) {
-      global_client->subscriptions[message->topic](std::string((char*) message->payload));
+      global_client->subscriptions[message->topic](std::string((char*) message->topic), std::string((char*) message->payload));
     }
   }
 

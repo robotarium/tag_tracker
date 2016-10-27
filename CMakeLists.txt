@@ -4,11 +4,19 @@ cmake_minimum_required(VERSION 2.8)
 # Define project name
 project(cameraCalibration)
 
-set (INCLUDE_ROBOTARIUM "../messageTypes/" )
-set (INCLUDE_LOCAL_LIBS "libpaho-mqtt3a;libpaho-mqtt3as")
+set(INCLUDE_ROBOTARIUM "../messageTypes/" )
+set(INCLUDE_LOCAL_LIBS "libpaho-mqtt3a;libpaho-mqtt3as")
 set(INCLUDE_TSQUEUE "mqttclient/tsqueue/")
 set(INCLUDE_PROMISE "mqttclient/promise/")
 set(INCLUDE_CLIENT "mqttclient/src/")
+
+# Add Boost library support
+#find_package(Boost 1.45.0 COMPONENTS filesystem, regex)
+#find_package(Boost REQUIRED COMPONENTS filesystem, regex )
+#find_package(Boost REQUIRED COMPONENTS system, filesystem)
+find_package(Boost REQUIRED)
+find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem)
+include_directories(${Boost_INCLUDE_DIRS})
 
 # Find OpenCV, you may need to set OpenCV_DIR variable
 # to the absolute path to the directory containing OpenCVConfig.cmake file
@@ -32,13 +40,13 @@ include_directories(${OpenCV_INCLUDE_DIRS}
 add_executable(detectMarkers ./src/detect_markers_opencv_3.0.0.cpp)
 
 # Link your application with OpenCV libraries
-
 target_link_libraries(detectMarkers ${OpenCV_LIBS})
 target_link_libraries(detectMarkers mosquitto)
 target_link_libraries(detectMarkers pthread)
 target_link_libraries(detectMarkers paho-mqtt3c)
 target_link_libraries(detectMarkers mqttpp)
 target_link_libraries(detectMarkers paho-mqtt3a)
+target_link_libraries(detectMarkers ${Boost_LIBRARIES} ${Boost_SYSTEM_LIBRARY} ${Boost_FILESYSTEM_LIBRARY})
 
 set(C++11 "-std=c++11")
 
