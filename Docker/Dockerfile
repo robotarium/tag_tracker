@@ -3,10 +3,13 @@
 #First we install OpenCV, along with all the required dependencies. This is followed by build the actual tag tracker within the image. 
 
 #First we specify the base image
-FROM ubuntu:latest
+#FROM ubuntu:latest
+FROM ubuntu:14.04
+
 # Specify the working directory so that we can navigate back to it. 
 ENV CURRENTDIR /home/TheDocker/
 WORKDIR $CURRENTDIR
+
 # To avoid potential future errors, allow src files to be pulled - add the following lines to sources.list 
 RUN echo 'deb-src http://archive.ubuntu.com/ubuntu trusty main restricted #Added by software-properties' >>/etc/apt/sources.list && \
     echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
@@ -145,9 +148,20 @@ RUN git clone https://github.com/robotarium/tag_tracker.git && \
     make 
 
 #Specify the user
-RUN useradd -m TheDocker
-RUN usermod -s /bin/bash/ TheDocker
-RUN usermod -aG sudo TheDocker
+#RUN useradd -m TheDocker
+#RUN usermod -s /bin/bash/ TheDocker
+#RUN usermod -aG sudo TheDocker
+
+RUN export uid=1000 gid=1000 && \
+mkdir -p /home/developer && \
+echo "developer:x:${uid}:${gid}:Developer,,,:/home/developer:/bin/bash" >> /etc/passwd && \
+echo "developer:x:${uid}:" >> /etc/group && \
+echo "developer ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/developer && \
+chmod 0440 /etc/sudoers.d/developer && \
+chown ${uid}:${gid} -R /home/developer 
+
+USER developer
+ENV HOME /home/developer
 
 #Test X11 Forwarding
 RUN apt-get -y install firefox
