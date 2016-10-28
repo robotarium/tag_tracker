@@ -830,21 +830,27 @@ int main(int argc, char *argv[]) {
                         double batteryLevel = -1;
                         if (powerData[id] != NULL)
                             batteryLevel = static_cast<double>(powerData[id]);
-                        const String powerDataStr = to_string(batteryLevel);
-                        const String xStr         = to_string(static_cast<double>(message[id]["x"]));
-                        const String yStr         = to_string(static_cast<double>(message[id]["y"]));
-                        const String thetaStr     = to_string(static_cast<double>(message[id]["theta"]));
+                        const String powerDataStr = "battery: " + to_string(batteryLevel);
+                        const String xStr         = "x: " + to_string(static_cast<double>(message[id]["x"]));
+                        const String yStr         = "y: " + to_string(static_cast<double>(message[id]["y"]));
+                        const String thetaStr     = "theta: " + to_string(static_cast<double>(message[id]["theta"]));
                         vector<double> rip;
                         rip.push_back(static_cast<double>(message[id]["u"]));
                         rip.push_back(static_cast<double>(message[id]["v"]));
                         robotImagePosition[id] = rip;
 
                         if (clickedOnGritsbot[id]) {
-                            putText(imageCopy, powerDataStr, Point(static_cast<double>(message[id]["u"]) + 10, static_cast<double>(message[id]["v"]) + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                            putText(imageCopy, yStr, Point(static_cast<double>(message[id]["u"]) + 10, static_cast<double>(message[id]["v"]) + 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                            putText(imageCopy, yStr, Point(static_cast<double>(message[id]["u"]) + 10, static_cast<double>(message[id]["v"]) + 30), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                            putText(imageCopy, thetaStr, Point(static_cast<double>(message[id]["u"]) + 10, static_cast<double>(message[id]["v"]) + 40), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                        }
+                            putText(imageCopy, powerDataStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                            putText(imageCopy, xStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                            putText(imageCopy, yStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                            putText(imageCopy, thetaStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                        } else if (closeToGritsbot[id]) {
+                            putText(imageCopy, powerDataStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                            putText(imageCopy, xStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                            putText(imageCopy, yStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                            putText(imageCopy, thetaStr, Point(static_cast<double>(message[id]["u"]) + 20, static_cast<double>(message[id]["v"]) + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+
+						}
 
                     }
 
