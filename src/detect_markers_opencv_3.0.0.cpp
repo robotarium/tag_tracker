@@ -387,7 +387,7 @@ bool openOutputVideo(std::string filename, int codec, int fps) {
     * - MPG4
     * - MJPG
     */
-  if(outputVideo.open(filename, videoCo, fps, frameSize, true)) {
+  if(outputVideo.open(filename, videoCodec, fps, frameSize, true)) {
     if(outputVideo.isOpened()) {
       std::cout << "Recording video with filename " << filename << std::endl;
       return true;
