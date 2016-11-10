@@ -92,6 +92,7 @@ bool  getJSONInt(auto data, std::string fieldName, int* output);
 json powerData;
 std::map< std::string, vector<double> > robotImagePosition;
 std::map< std::string, bool > closeToGritsbot, clickedOnGritsbot;
+std::ostringstream ss;
 
 /* Tracker parameters */
 int   dictionaryId;
@@ -830,10 +831,22 @@ int main(int argc, char *argv[]) {
                         double batteryLevel = -1;
                         if (powerData[id] != NULL)
                             batteryLevel = static_cast<double>(powerData[id]);
-                        const String powerDataStr = "battery: " + to_string(batteryLevel);
-                        const String xStr         = "x:       " + to_string(static_cast<double>(message[id]["x"]));
-                        const String yStr         = "y:       " + to_string(static_cast<double>(message[id]["y"]));
-                        const String thetaStr     = "theta:   " + to_string(static_cast<double>(message[id]["theta"]));
+						ss.str("");
+						ss.clear();
+						ss << std::setprecision(3) << batteryLevel;
+                        const String powerDataStr = "battery: " + ss.str();
+						ss.str("");
+						ss.clear();
+						ss << std::setprecision(3) << static_cast<double>(message[id]["x"]);
+                        const String xStr         = "x:       " + ss.str();
+						ss.str("");
+						ss.clear();
+						ss << std::setprecision(3) << static_cast<double>(message[id]["y"]);
+                        const String yStr         = "y:       " + ss.str();
+						ss.str("");
+						ss.clear();
+						ss << std::setprecision(3) << static_cast<double>(message[id]["theta"]);
+                        const String thetaStr     = "theta:   " + ss.str();
                         vector<double> rip;
                         rip.push_back(static_cast<double>(message[id]["u"]));
                         rip.push_back(static_cast<double>(message[id]["v"]));
