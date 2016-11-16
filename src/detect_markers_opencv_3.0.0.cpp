@@ -163,6 +163,7 @@ void powerDataCallback(std::string topic, std::string message) {
 
     /* Parse message string into JSON dictionary */
     try {
+
         auto data = json::parse(message);
 
         /* Write battery voltage to global powerData JSON dictionary */
@@ -178,7 +179,7 @@ void powerDataCallback(std::string topic, std::string message) {
             }
         }
     } catch (const std::exception& e) {
-
+        std::cerr << "Encountered error while parsing message on topic: " << topic << std::endl;
     }
 }
 
