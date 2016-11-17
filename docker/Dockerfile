@@ -4,7 +4,7 @@
 
 #First we specify the base image
 #FROM ubuntu:latest
-FROM ubuntu:14.04
+FROM ubuntu:16.04
 
 # Specify the working directory so that we can navigate back to it. 
 ENV CURRENTDIR /home/TheDocker/
@@ -19,18 +19,26 @@ RUN echo 'deb-src http://archive.ubuntu.com/ubuntu trusty main restricted #Added
     echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-proposed restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
     apt-get -qq update
 
-
 #Search for multiverse packages as well
 RUN apt-get -y install software-properties-common python-software-properties python3-software-properties
 RUN add-apt-repository "multiverse" 
 
-# Install pre-requisites for openCV
+# (PAUL) Add PPA for cmake 3.2
+#RUN sudo add-apt-repository ppa:george-edison55/cmake-3.x
+#RUN sudo apt-get update
+
+# Install pre-requisites for openCV # (PAUL) removed python-dev, python-numpy
 RUN apt-get -qq update && \
     apt-get -y build-dep opencv && \ 
-    apt-get -qq -y install libfaac-dev libopencv-dev build-essential cmake git libgtk2.0-dev pkg-config python-dev python-numpy \
+    apt-get -qq -y install libfaac-dev libopencv-dev build-essential cmake git libgtk2.0-dev pkg-config \
                            libdc1394-22 libdc1394-22-dev libjpeg-dev libpng12-dev libjasper-dev libavcodec-dev libavformat-dev libswscale-dev libgstreamer0.10-dev \
 		           libgstreamer-plugins-base0.10-dev libv4l-dev libtbb-dev libqt4-dev libmp3lame-dev libopencore-amrnb-dev libopencore-amrwb-dev \
                            libtheora-dev libvorbis-dev libxvidcore-dev x264 v4l-utils unzip
+
+# (PAUL) Add stuff to get gcc/g++ 4.9+
+#RUN add-apt-repository ppa:ubuntu-toolchain-r/test
+#RUN apt-get -qq update
+#RUN apt-get -qq -y install g++-4.9
 
 # Install some required libraries (git has been added to this list)
 RUN apt-get -y install build-essential gcc make cmake cmake-gui cmake-curses-gui libssl-dev doxygen graphviz yasm nasm git
@@ -39,7 +47,7 @@ RUN apt-get -y install build-essential gcc make cmake cmake-gui cmake-curses-gui
 RUN git clone git://git.videolan.org/x264.git && \
     cd x264 && \
     ./configure --enable-static --enable-shared && \
-    make -j8 && \
+    make -j $(($(nproc)-1)) && \
     make install && \
     cd ..
 
@@ -49,35 +57,40 @@ RUN wget https://sourceforge.net/projects/lame/files/lame/3.99/lame-3.99.5.tar.g
     tar -xvzf lame-3.99.5.tar.gz
 RUN cd lame-3.99.5 && \
     ./configure && \
-    make -j8 && \
+    make -j $(($(nproc) - 1)) && \
     make install && \
     cd ..
 
 # Install FFMpeg library
-RUN git clone https://github.com/FFmpeg/FFmpeg.git && \
-    apt-get -y install libfdk-aac-dev && \
-    cd FFmpeg && \
-    ./configure --enable-nonfree --enable-pic --enable-shared --enable-gpl --enable-pthreads --enable-libx264 --enable-libfdk-aac --enable-libmp3lame && \
-    make -j4 && \
-    make install && \
-    cd ..
-	
-#Install MQTT libraries and client (C)
-RUN git clone https://github.com/eclipse/paho.mqtt.c.git && \
-    cd paho.mqtt.c/build && \
-    cmake .. && \
-    make && \
-    make install && \
-    cd .. && cd ..  #head back to the main directory
+#RUN git clone https://github.com/FFmpeg/FFmpeg.git && \
+#    apt-get -y install libfdk-aac-dev && \
+#    cd FFmpeg && \
+#    ./configure --enable-nonfree --enable-pic --enable-shared --enable-gpl --enable-pthreads --enable-libx264 --enable-libfdk-aac --enable-libmp3lame && \
+#    make -j $(($(nproc) - 1)) && \
+#    make install && \
+#    cd ..
 
-RUN git clone https://github.com/eclipse/paho.mqtt.cpp.git && \
-    cd paho.mqtt.cpp && \
-    make && \
-    cp lib/libmqttpp.so.0.1 /usr/local/lib/ && \
-    cd /usr/local/lib/ && \
-    ln -s libmqttpp.so.0.1 libmqttpp.so.0 && \
-    ln -s libmqttpp.so.0 libmqttpp.so && \
-    cd $CURRENTDIR
+# (PAUL) Get ffmpeg from standard lib 
+RUN apt-get -y install ffmpeg
+
+#(PAUL) We don't use the paho.mqtt.c libraries - just mosquitto
+#Install MQTT libraries and client (C)
+#RUN git clone https://github.com/eclipse/paho.mqtt.c.git && \
+#    cd paho.mqtt.c/build && \
+#    cmake .. && \
+#    make && \
+#    make install && \
+#    cd .. && cd ..  #head back to the main directory
+
+#(PAUL) I don't think we use the cpp libraries...
+#RUN git clone https://github.com/eclipse/paho.mqtt.cpp.git && \
+#    cd paho.mqtt.cpp && \
+#    make && \
+#    cp lib/libmqttpp.so.0.1 /usr/local/lib/ && \
+#    cd /usr/local/lib/ && \
+#    ln -s libmqttpp.so.0.1 libmqttpp.so.0 && \
+#    ln -s libmqttpp.so.0 libmqttpp.so && \
+#    cd $CURRENTDIR
 
 #Install Boost Libraries
 RUN apt-get -y install libboost1.58-dev libboost-all-dev
@@ -88,7 +101,7 @@ RUN git clone https://github.com/nlohmann/json.git && \
     mkdir build && \
     cd build/ && \
     cmake .. && \
-    make && \
+    make -j $(($(nproc) - 1)) && \
     make install && \
     ln -s /usr/local/include/nlohmann/json.hpp /usr/include/json.hpp && \
     cd $CURRENTDIR #Navigate back to main directory
@@ -117,10 +130,10 @@ RUN git clone https://github.com/opencv/opencv_contrib.git
 RUN git clone https://github.com/opencv/opencv.git && \
     cd opencv && \
     mkdir build && cd build && \
-    cmake -D CMAKE_BUILD_TYPE=Release -D OPENCV_EXTRA_MODULES_PATH=/home/TheDocker/opencv_contrib/modules -D BUILD_opencv_python3=ON -D \ 
-    BUILD_PYTHON_SUPPORT=ON -D WITH_TBB=ON -D WITH_V4L=ON -D BUILD_EXAMPLES=OFF -D BUILD_NEW_PYTHON_SUPPORT=ON -D WITH_GSTREAMER=OFF -D \ 
+    cmake -D CMAKE_BUILD_TYPE=Release -D OPENCV_EXTRA_MODULES_PATH=/home/TheDocker/opencv_contrib/modules -D BUILD_opencv_python3=OFF -D \ 
+    BUILD_PYTHON_SUPPORT=OFF -D WITH_TBB=ON -D WITH_V4L=ON -D BUILD_EXAMPLES=OFF -D BUILD_NEW_PYTHON_SUPPORT=OFF -D WITH_GSTREAMER=OFF -D \ 
     WITH_OPENGL=ON -D WITH_QT=OFF .. && \
-    make -j8 && \
+    make -j $(($(nproc) - 1)) && \
     make install 
 
 # Install Mosquitto 
@@ -128,10 +141,9 @@ RUN apt-get -y install libc-ares-dev uuid-dev xsltproc && \
     wget http://mosquitto.org/files/source/mosquitto-1.4.10.tar.gz && \
     tar -xvzf mosquitto-1.4.10.tar.gz && \
     cd mosquitto-1.4.10 && \
-    make && \
+    make -j $(($(nproc) - 1)) && \
     make install && \
-    cd $CURRENTDIR
-   
+    cd $CURRENTDIR   
 
 #RUN apt-get -y install libc-ares-dev uuid-dev xsltproc && \ 
 #    git clone https://github.com/eclipse/mosquitto.git && \
@@ -145,13 +157,17 @@ RUN git clone https://github.com/robotarium/tag_tracker.git && \
     cd tag_tracker && \
     mkdir build && cd build && \
     cmake .. && \
-    make 
+    make -j $(($(nproc) - 1)) 
 
 #Specify the user
 #RUN useradd -m TheDocker
 #RUN usermod -s /bin/bash/ TheDocker
 #RUN usermod -aG sudo TheDocker
 
+# (PAUL) Need this for firefox to run...
+RUN apt-get install -y sudo libcanberra-gtk3-module
+
+#(PAUL) Add a user for use with X11 forwarding
 RUN export uid=1000 gid=1000 && \
 mkdir -p /home/developer && \
 echo "developer:x:${uid}:${gid}:Developer,,,:/home/developer:/bin/bash" >> /etc/passwd && \
@@ -164,8 +180,8 @@ USER developer
 ENV HOME /home/developer
 
 #Test X11 Forwarding
-RUN apt-get -y install firefox
-CMD firefox
+#RUN sudo apt-get -y install firefox
+#CMD firefox
 
 # If all is well, we are ready to deploy the tag tracker!
 #CMD cd $CURRENTDIR && \
