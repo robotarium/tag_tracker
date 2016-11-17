@@ -10,6 +10,8 @@ set(INCLUDE_TSQUEUE "mqttclient/tsqueue/")
 set(INCLUDE_PROMISE "mqttclient/promise/")
 set(INCLUDE_CLIENT "mqttclient/src/")
 
+add_compile_options(-std=c++14)
+
 # Add Boost library support
 #find_package(Boost 1.45.0 COMPONENTS filesystem, regex)
 #find_package(Boost REQUIRED COMPONENTS filesystem, regex )

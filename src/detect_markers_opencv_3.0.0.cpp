@@ -47,6 +47,7 @@ the use of this software, even if advised of the possibility of such damage.
 #include <time.h>
 #include <sys/time.h>
 #include <algorithm>
+#include <chrono>
 
 /* For Rodrigues transformation */
 #include <opencv2/calib3d/calib3d.hpp>
@@ -58,6 +59,11 @@ the use of this software, even if advised of the possibility of such damage.
 #include <iostream>
 #include <fstream>
 #include <mqttclient.hpp>
+
+/* Chrono typedefs */
+typedef std::chrono::high_resolution_clock Time;
+typedef std::chrono::milliseconds ms;
+typedef std::chrono::duration<float> fsec;
 
 /* Camera calibration constants */
 double OFFSET_X_PX = -31;
@@ -79,37 +85,40 @@ using namespace std;
 using namespace cv;
 
 /* Forward declarations */
-static inline timespec timeAdd(timespec oldTime, timespec time);
-const double timeDelta(timespec tPast, clockid_t id);
 const std::string currentDateTime();
-bool openOutputVideo(std::string filename, int codec, int fps);
-bool createDirectory(std::string folderName);
+bool  openOutputVideo(std::string filename, int codec, int fps);
+bool  createDirectory(std::string folderName);
+bool  getJSONString(auto data, std::string fieldName, std::string* output);
+bool  getJSONInt(auto data, std::string fieldName, int* output);
 
 /* Global variables */
 json powerData;
 
 /* Tracker parameters */
-int dictionaryId;
-bool showRejected;
-bool estimatePose;
+int   dictionaryId;
+bool  showRejected;
+bool  estimatePose;
 float markerLength;
-bool useMetric;
-int camId;
-Mat camMatrix, distCoeffs;
+bool  useMetric;
+int   camId;
+Mat   camMatrix, distCoeffs;
 
 /* OpenCV video input and output devices */
-VideoCapture inputVideo;
-VideoWriter outputVideo;
-String video;
+VideoCapture  inputVideo;
+VideoWriter   outputVideo;
 
 /* Video recording flags */
-bool recordVideo = false;
-bool recordFrames = false;
-int recordVideoFPS = 30;
-int recordImageFPS = 1;
-bool outputVideoWithMarkers = false;
-uint16_t frameNumber = 0;
+bool        recordVideo     = false;
+bool        recordFrames    = false;
+int         recordVideoFPS  = 30;
+int         recordImageFPS  = 1;
+uint16_t    frameNumber     = 0;
 std::string imageFolderName = "./frames";
+bool        outputVideoWithMarkers = false;
+
+/* Codec settings for MPEG encoded video files */
+//string  codec       = "MPG";
+//int     videoCodec  = CV_FOURCC('M','P','E','G');
 
 /* Codec settings */
 //string codec = "MPG";
@@ -118,24 +127,21 @@ string codec = "MP4";
 int videoCodec = CV_FOURCC('X', '2', '6', '4');
 
 /* Time stamps */
-const clockid_t clockId = CLOCK_MONOTONIC;
-timespec lastVideoFrameWrite;
-timespec timestepVideoFrame;
-timespec lastImageFrameWrite;
-timespec timestepImageFrame;
-double totalTime = 0;
-int totalIterations = 0;
-double tick = (double) getTickCount();
+auto    lastVideoFrameWrite = Time::now();
+auto    lastImageFrameWrite = Time::now();
+double  totalTime = 0.0;
+int     totalIterations = 0;
+double  tick = (double) getTickCount();
 
 /* Framesize */
-int frameWidth = 1280;
-int frameHeight = 720;
-cv::Size frameSize = cv::Size(frameWidth, frameHeight);
+int       frameWidth  = 1280;
+int       frameHeight = 720;
+cv::Size  frameSize   = cv::Size(frameWidth, frameHeight);
 
 /* MQTT parameters */
-double publishRate = 30;
-bool configUpdate = false;
-std::string statusMsg = "";
+double      publishRate   = 30;
+bool        configUpdate  = false;
+std::string statusMsg     = "";
 
 /* -------------------------------------
  *		MQTT Callback functions
@@ -178,32 +184,6 @@ void powerDataCallback(std::string topic, std::string message) {
   }
 }
 
-bool getJSONString(auto data, std::string fieldName, std::string* output) {
-  if (data.find(fieldName) != data.end()) {
-    if(data[fieldName].is_string()) {
-      *output = data[fieldName];
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
-}
-
-bool getJSONInt(auto data, std::string fieldName, int* output) {
-  if (data.find(fieldName) != data.end()) {
-    if(data[fieldName].is_number()) {
-      *output = data[fieldName];
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
-}
-
 void configCallback(std::string topic, std::string message) {
   /* Parameters in JSON message for video recording
    * type       : video       [string]
@@ -226,6 +206,8 @@ void configCallback(std::string topic, std::string message) {
   std::string run = "";
   std::string folderName = "";
   std::string fileName = "";
+
+  std::cout << message << std::endl;
 
   /* Parse message string into JSON dictionary */
   try {
@@ -265,26 +247,32 @@ void configCallback(std::string topic, std::string message) {
                                     videoCodec, recordVideoFPS);
                   std::cout << "Video file opened: " << folderName + "/" + fileName
                             << std::endl;
-
-                  /* Start recording video */
+                /* Start recording video */
+                }
+                if(outputVideo.isOpened()) {
                   recordVideo = true;
+                  std::cout << "Video file opened: " << folderName + "/" + fileName << std::endl;
+                } else {
+                  std::cout << "Video file opened: " << folderName + "/" + fileName << " failed to open!!!!" << std::endl;
                 }
               } else {
                 std::cout << "Folder creation failed: " << folderName << std::endl;
               }
             }
+
           } else {
             // 2. if run == stop
             // 2.a: stop output stream
             // 2.b: set recording flags to false
             /* Stop recording video */
             recordVideo = false;
+            totalTime = 0.0;
 
             std::cout << "Run Video level stop detected." << std::endl;
 
             if(outputVideo.isOpened()) {
-              std::cout << "Stopping video recording" << std::endl;
-              outputVideo.release();
+              //std::cout << "Stopping video recording" << std::endl;
+              //outputVideo.release();
               std::cout << "Stopped video recording" << std::endl;
             }
           }
@@ -342,36 +330,63 @@ std::function<void(std::string, std::string)> stdf_powerDataCallback = &powerDat
 std::function<void(std::string, std::string)> stdf_configCallback = &configCallback;
 
 /* -------------------------------------
+ *		  JSON Utility functions
+ * ------------------------------------- */
+bool getJSONString(auto data, std::string fieldName, std::string* output) {
+  if (data.find(fieldName) != data.end()) {
+    if(data[fieldName].is_string()) {
+      *output = data[fieldName];
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    return false;
+  }
+}
+
+bool getJSONInt(auto data, std::string fieldName, int* output) {
+  if (data.find(fieldName) != data.end()) {
+    if(data[fieldName].is_number()) {
+      *output = data[fieldName];
+      return true;
+    } else {
+      return false;
+    }
+  } else {
+    return false;
+  }
+}
+
+/* -------------------------------------
  *		Video and frame output functions
  * ------------------------------------- */
 void writeFrameToVideo(Mat frame) {
-  if(timeDelta(lastVideoFrameWrite, clockId) > (1.0 / recordVideoFPS)) {
-    /* Update time stamp of last frame */
-    timestepVideoFrame.tv_sec  = 0;
-    timestepVideoFrame.tv_nsec = (1.0 / recordVideoFPS) * 1E9;
+  if( (Time::now() - lastVideoFrameWrite).count() > (1.0 / recordVideoFPS) ) {
+    /* Update time stamps of last frame */
+    lastVideoFrameWrite = Time::now();
 
-    /* Set time stamp of last frame to old time stamp + 1 / fps sec */
-    lastVideoFrameWrite = timeAdd(lastVideoFrameWrite, timestepVideoFrame);
+    /* Debug output */
+    //totalTime += (Time::now() - lastVideoFrameWrite).count();
+    //std::cout << totalTime << std::endl;
 
     /* Add frame to output video */
-    outputVideo << frame;
+    if(outputVideo.isOpened()) {
+      outputVideo << frame;
+    }
   }
 }
 
 bool writeFrameToFile(Mat frame, std::string filename) {
-  if(timeDelta(lastImageFrameWrite, clockId) > (1.0 / recordImageFPS)) {
-    /* Update time stamp of last frame */
-    timestepImageFrame.tv_sec  = 0;
-    timestepImageFrame.tv_nsec = (1.0 / recordImageFPS) * 1E9;
-
-    /* Set time stamp of last frame to old time stamp + 1 / fps sec */
-    lastImageFrameWrite = timeAdd(lastImageFrameWrite, timestepImageFrame);
+  if( (Time::now() - lastImageFrameWrite).count() > (1.0 / recordImageFPS) ) {
+    /* Update time stamps of last frame */
+    lastImageFrameWrite = Time::now();
 
     /* Write file */
     imwrite(filename, frame);
 
     /* Debug output */
-    std::cout << "Printing to file: " << filename << std::endl;
+    //std::cout << "Printing to file: " << filename << std::endl;
 
     return true;
   } else {
@@ -463,39 +478,6 @@ const std::string currentDateTime() {
   return buf;
 }
 
-const double timeDelta(timespec tPast, clockid_t id) {
-  /* NOTE: For a description of clockid_t see
-   *  http://nadeausoftware.com/articles/2012/04/c_c_tip_how_measure_elapsed_real_time_benchmarking
-   *  http://linux.die.net/man/3/clock_gettime
-   * NOTE: This function is based on the following post
-   *  http://stackoverflow.com/questions/7472071/is-gettimeofday-guaranteed-to-be-of-microsecond-resolution
-   */
-  double dt;
-  struct timespec tNow;
-
-  clock_gettime(id, &tNow);
-  dt = tNow.tv_sec - tPast.tv_sec + (tNow.tv_nsec - tPast.tv_nsec) / 1e9;
-
-  return dt;
-}
-
-static inline timespec timeAdd(timespec oldTime, timespec time) {
-  /* For a description of time arithmetic functions see
-   * http://codereview.stackexchange.com/questions/40176/correctness-of-calculations-with-struct-timespec
-   */
-  if (time.tv_nsec + oldTime.tv_nsec >= 1E9) {
-    return (timespec){
-      tv_sec: time.tv_sec + oldTime.tv_sec + 1,
-      tv_nsec: time.tv_nsec + oldTime.tv_nsec - (long int) 1E9 // Cast to (long int) to avoid complier warning
-    };
-  } else {
-    return (timespec){
-      tv_sec: time.tv_sec + oldTime.tv_sec,
-      tv_nsec: time.tv_nsec + oldTime.tv_nsec
-    };
-  }
-}
-
 void printDetectionRate() {
   double currentTime = (double) (getTickCount() - tick) / getTickFrequency();
   totalTime += currentTime;
@@ -568,16 +550,15 @@ namespace {
 	        "{vo       |       | Record video to output file }"
 	        "{rM       |       | Render detected markers into output video file }"
 	        "{m        |       | Use metric units in position updates of MQTT messages }"
-			"{od       |       | Output file for video }"
-			//"{a        |       | Tag aliases }"
-			"{mqtt        |       |  MQTT setup information}"
-			 "{h        | localhost      | MQTT broker }"
-			"{p        | 1884      | MQTT port }";
+			    "{od       |       | Output file for video }"
+			    "{mqtt     |       |  MQTT setup information}"
+			    "{h        | localhost | MQTT broker }"
+			    "{p        | 1883      | MQTT port }";
 }
 
-/**
-	TODO: GRAB JSON CONFIG FILE FROM COMMAND LINE AND PUBLISH ROBOT ALIASES WITH DATA RATHER THAN TAG IDENTITIES
- */
+/* --------------------------------------
+ *		        MAIN FUNCTION
+ * -------------------------------------- */
 int main(int argc, char *argv[]) {
 	/* Initialize command line parsing */
 	CommandLineParser parser(argc, argv, keys);
@@ -645,8 +626,8 @@ int main(int argc, char *argv[]) {
 
 
 	/* Initialize time stamps */
-	clock_gettime(clockId, &lastVideoFrameWrite);
-	clock_gettime(clockId, &lastImageFrameWrite);
+  lastVideoFrameWrite = Time::now();
+  lastImageFrameWrite = Time::now();
 
   /* Open video writer if video output filename is specified */
   if(recordVideo) {
