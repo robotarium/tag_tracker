@@ -137,7 +137,7 @@ bool        configUpdate  = false;
 std::string statusMsg     = "";
 
 /* -------------------------------------
- *		MQTT Callback functions 
+ *		MQTT Callback functions
  * ------------------------------------- */
 void powerDataCallback(std::string topic, std::string message) {
   bool debug = false;
@@ -219,9 +219,9 @@ void configCallback(std::string topic, std::string message) {
             // 1.a: create output folder
             // 1.b: open output stream
             // 1.c: set global recording parameters
-            
+
             std::cout << "Run Video: " << run << std::endl;
-            
+
             /* Start recording the video after reading parameters */
             if(getJSONString(data, std::string("folderName"), &folderName) &&
                 getJSONString(data, std::string("fileName"), &fileName) &&
@@ -271,12 +271,12 @@ void configCallback(std::string topic, std::string message) {
         // 1.c: set global recording parameters
         // 2. if run == stop
         // 2.a: set recording flags to false
-            
+
         //* type       : image       [string]
         //* run        : start/stop  [string]
         //* frameRate  : N           [int]
         //* folderName :             [string]
-            
+
         if(getJSONString(data, std::string("run"), &run)) {
           /* Debug output */
           std::cout << "Run Image: " << run << std::endl;
@@ -406,7 +406,7 @@ std::string getImageFilename(std::string folder, int frameNumber) {
   std::string filenameInit = folder + "/00001.jpg";
   char filenameArray[sizeof(char) * filenameInit.length()];
   sprintf(filenameArray, "%s/%05d.jpg", folder.c_str(), frameNumber);
-  
+
   return std::string(filenameArray);
 }
 
@@ -415,14 +415,14 @@ bool createDirectory(std::string folderName) {
   boost::filesystem::path dir(folderName);
 
   /* Check if directory already exists */
-  if (boost::filesystem::is_directory(dir) && 
+  if (boost::filesystem::is_directory(dir) &&
       boost::filesystem::exists(dir)) {
     return true;
   }
 
   /* Create actual directory */
   if (boost::filesystem::create_directory(dir)) {
-    if (boost::filesystem::is_directory(dir) && 
+    if (boost::filesystem::is_directory(dir) &&
           boost::filesystem::exists(dir)) {
       /* Directory exists */
       std:string dirStr = boost::filesystem::canonical(dir).string();
@@ -437,7 +437,7 @@ bool createDirectory(std::string folderName) {
 }
 
 /* -------------------------------------
- *		Calibration utility functions 
+ *		Calibration utility functions
  * ------------------------------------- */
 double rotate_x(double x, double y) {
 	return cos(ROTATION)*x - sin(ROTATION)*y;
@@ -448,7 +448,7 @@ double rotate_y(double x, double y) {
 }
 
 /* -------------------------------------
- *		Time utility functions 
+ *		Time utility functions
  * ------------------------------------- */
 /* Get current date/time, format is YYYY-MM-DD.HH:mm:ss */
 const std::string currentDateTime() {
@@ -472,8 +472,8 @@ void printDetectionRate() {
   totalIterations++;
 
   if(totalIterations % 30 == 0) {
-    std::cout << "Detection Time = " << currentTime * 1000 << " ms " 
-              << "(Mean = " << 1000 * totalTime / double(totalIterations) 
+    std::cout << "Detection Time = " << currentTime * 1000 << " ms "
+              << "(Mean = " << 1000 * totalTime / double(totalIterations)
               << " ms)" << std::endl;
   }
 
@@ -481,7 +481,7 @@ void printDetectionRate() {
 }
 
 /* --------------------------------------------------
- *		Camera/tracker configuration functions 
+ *		Camera/tracker configuration functions
  * -------------------------------------------------- */
 static bool readCameraParameters(string filename, Mat &camMatrix, Mat &distCoeffs) {
     FileStorage fs(filename, FileStorage::READ);
@@ -581,7 +581,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Add corner refinement in markers */
-	detectorParams->doCornerRefinement = true; 
+	detectorParams->doCornerRefinement = true;
 
 	/* Instantiate dictionary containing tags */
 	Ptr<aruco::Dictionary> dictionary =
@@ -595,8 +595,8 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Read video/image recording command line parameters */
-	// TODO: remove or replace --> this is only used as file name for 
-	//				input videos (i.e. non-live tracking) 
+	// TODO: remove or replace --> this is only used as file name for
+	//				input videos (i.e. non-live tracking)
 	//				--> not useful for our purposes, we only do live camera
 	//				stream tracking
 	recordVideo = parser.has("vo");
@@ -608,10 +608,9 @@ int main(int argc, char *argv[]) {
   /* Set resolution to 1280 x 720 */
 	inputVideo.set(CV_CAP_PROP_FRAME_WIDTH, frameWidth);
 	inputVideo.set(CV_CAP_PROP_FRAME_HEIGHT, frameHeight);
-	
-	std::cout << "Image size: " << frameSize.width 
-						<< " / " << frameSize.height << std::endl;
 
+	std::cout << "Image size: " << frameSize.width
+						<< " / " << frameSize.height << std::endl;
 
 	/* Initialize time stamps */
   lastVideoFrameWrite = Time::now();
@@ -632,9 +631,9 @@ int main(int argc, char *argv[]) {
 	m.start();
 
 	/* Set MQTT publishing topic */
-	std::string main_publish_channel  = "overhead_tracker/all_robot_pose_data"; 
-  std::string topicAck              = "overhead_tracker/config_ack"; 
-		
+	std::string main_publish_channel  = "overhead_tracker/all_robot_pose_data";
+  std::string topicAck              = "overhead_tracker/config_ack";
+
 	/* Subscribe to power data channels */
 	for (int index = 0; index < 50; index++) {
 		/* Create topic name string */
@@ -649,7 +648,7 @@ int main(int argc, char *argv[]) {
 	m.subscribe("overhead_tracker/config", stdf_configCallback);
 
   /* --------------------------------------------
-   *                Main event loop 
+   *                Main event loop
    * -------------------------------------------- */
   while(inputVideo.grab()) {
     /* Retrieve new frame from camera */
@@ -663,10 +662,10 @@ int main(int argc, char *argv[]) {
 
     try {
       /* Detect markers and estimate pose */
-      aruco::detectMarkers(image, dictionary, corners, ids, 
+      aruco::detectMarkers(image, dictionary, corners, ids,
                             detectorParams, rejected);
       if(estimatePose && ids.size() > 0) {
-        aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix, 
+        aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix,
                                           distCoeffs, rvecs, tvecs);
       }
 
