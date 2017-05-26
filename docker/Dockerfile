@@ -6,6 +6,11 @@
 #FROM ubuntu:latest
 FROM ubuntu:16.04
 
+RUN apt-get -y update 
+RUN apt-get -y upgrade
+
+RUN apt-get install sudo
+
 #(PAUL) Add a user for use with X11 forwarding
 RUN export uid=1000 gid=1000 && \
 mkdir -p /home/developer && \
@@ -20,16 +25,14 @@ chown ${uid}:${gid} -R /home/developer
 #WORKDIR $CURRENTDIR
 ENV PROGRAMDIR /home/developer/programs
 
-RUN apt-get install sudo
-
 # To avoid potential future errors, allow src files to be pulled - add the following lines to sources.list 
-RUN echo 'deb-src http://archive.ubuntu.com/ubuntu trusty main restricted #Added by software-properties' >>/etc/apt/sources.list && \
-    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
-    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-updates restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
-    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-backports main restricted universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
-    echo 'deb-src http://security.ubuntu.com/ubuntu trusty-security restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
-    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-proposed restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
-    apt-get -qq update
+#RUN echo 'deb-src http://archive.ubuntu.com/ubuntu trusty main restricted #Added by software-properties' >>/etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-updates restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-backports main restricted universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://security.ubuntu.com/ubuntu trusty-security restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-proposed restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+ #   apt-get -qq update
 
 #Search for multiverse packages as well
 RUN sudo apt-get -y install software-properties-common python-software-properties python3-software-properties
