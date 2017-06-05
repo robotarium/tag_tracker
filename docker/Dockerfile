@@ -183,34 +183,14 @@ RUN cd $PROGRAMDIR && \
 	git checkout Dockerization && \
     mkdir build && cd build && \
     cmake .. && \
-    make -j $(($(nproc) - 1)) 
+    make -j $(($(nproc) - 2)) 
 
-#Specify the user
-#RUN useradd -m TheDocker
-#RUN usermod -s /bin/bash/ TheDocker
-#RUN usermod -aG sudo TheDocker
-
-# (PAUL) Need this for firefox to run...
 RUN sudo apt-get install -y libcanberra-gtk-module libcanberra-gtk3-module
-
-#(PAUL) Add a user for use with X11 forwarding
-#RUN export uid=1000 gid=1000 && \
-#mkdir -p /home/developer && \
-#echo "developer:x:${uid}:${gid}:Developer,,,:/home/developer:/bin/bash" >> /etc/passwd && \
-#echo "developer:x:${uid}:" >> /etc/group && \
-#echo "developer ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/developer && \
-#chmod 0440 /etc/sudoers.d/developer && \
-#chown ${uid}:${gid} -R /home/developer 
 
 USER developer
 ENV HOME /home/developer
 
-#Test X11 Forwarding
-#RUN sudo apt-get -y install firefox
-#CMD firefox
+CMD cd $PROGRAMDIR/tag_tracker/scripts && \
+	sudo ./detectMarkers.sh
 
-# If all is well, we are ready to deploy the tag tracker!
-#CMD cd $CURRENTDIR && \
-    #cd tag_tracker/scripts && \
-    #./detectMarkers.sh
 

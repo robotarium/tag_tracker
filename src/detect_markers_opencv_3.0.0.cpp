@@ -810,9 +810,13 @@ int main(int argc, char *argv[]) {
       imshow("out", imageCopy);
 
       char key = (char)waitKey(1);
-      if(key == 27) break;
+      if(key == 27) {
+        std::cout << "Escape pressed" << std::endl;
+        break;
+      }
     } catch (int e) {
       // TODO: Exception handling
+      std::cout << e << std::endl;
     }
 
     /* Debug output if desired */
