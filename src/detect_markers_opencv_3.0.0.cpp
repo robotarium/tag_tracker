@@ -86,6 +86,7 @@ using namespace cv;
 
 //Origin marker
 Vec3d origin_rvecs(0, 0, 0), origin_tvecs(0, 0, 0);
+float z_base = 0.0;
 int origin_marker_id = 3;
 bool found_origin_marker = false;
 
@@ -777,6 +778,8 @@ int main(int argc, char *argv[]) {
                   // Store pose of origin marker
                   origin_rvecs = rvecs[i];
                   origin_tvecs = tvecs[i];
+				  // Record z-coordinate to track on a plane
+				  z_base = origin_tvecs[2];
                   origin_tvecs[2] = 0; //Set z to zero, screws with stuff.
                   found_origin_marker = true;
                   std::cout << "Stored origin information: " << tvecs[i] << std::endl;
@@ -787,10 +790,11 @@ int main(int argc, char *argv[]) {
 
               Vec3d trans_rvecs, trans_tvecs;
               if(found_origin_marker) {
+				//tvecs[i][2] = z_base; // Fix z-coordinate
                 composeRT(-origin_rvecs, Vec3d(0, 0, 0), rvecs[i], tvecs[i]-origin_tvecs, trans_rvecs, trans_tvecs);
                 rvecs[i] = trans_rvecs;
                 tvecs[i] = trans_tvecs;
-              }
+			  }
               //TODO: Remove
               // std::cout << "tvec: " << tvecs[i] << std::endl;
 
