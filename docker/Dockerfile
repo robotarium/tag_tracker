@@ -167,14 +167,11 @@ RUN cd $PROGRAMDIR && \
     cd mosquitto-1.4.10 && \
     make -j $(($(nproc) - 1)) && \
     make install
-    #cd $CURRENTDIR   
 
-#RUN apt-get -y install libc-ares-dev uuid-dev xsltproc && \ 
-#    git clone https://github.com/eclipse/mosquitto.git && \
-#    cd mosquitto && \
-#    make && \
-#    make install && \
-#    cd $CURRENTDIR
+RUN sudo apt-get install -y libcanberra-gtk-module libcanberra-gtk3-module
+
+# Add this line to prevent caching 
+ENV updated-adds-on 06-05-2017-2
 
 # Now that openCV is installed, download the tag tracker and compile it!
 RUN cd $PROGRAMDIR && \
@@ -184,8 +181,6 @@ RUN cd $PROGRAMDIR && \
     mkdir build && cd build && \
     cmake .. && \
     make -j $(($(nproc) - 2)) 
-
-RUN sudo apt-get install -y libcanberra-gtk-module libcanberra-gtk3-module
 
 USER developer
 ENV HOME /home/developer

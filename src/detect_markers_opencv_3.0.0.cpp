@@ -37,6 +37,7 @@ the use of this software, even if advised of the possibility of such damage.
 */
 
 #include <opencv2/highgui.hpp>
+#include <opencv2/core.hpp>
 #include <opencv2/aruco.hpp>
 
 #include <vector>
@@ -65,12 +66,16 @@ typedef std::chrono::milliseconds ms;
 typedef std::chrono::duration<float> fsec;
 
 /* Camera calibration constants */
-double OFFSET_X_PX = -30;
-double OFFSET_Y_PX = -9;
+double OFFSET_X_PX = -31;
+double OFFSET_Y_PX = -2;
 
-double SCALE_X = 1.18 / 979.0;
-double SCALE_Y = 0.78 / 647.0;
-double ROTATION = (0.75 * M_PI/180.0);
+//double SCALE_X = 1.18 / 979.0;
+//double SCALE_Y = 0.78 / 647.0;
+//double ROTATION = (0.75 * M_PI/180.0);
+double SCALE_X = 1.2/1280.0;
+double SCALE_Y = 0.80/720;
+double X_TRANSFORM[] = {-1.2757, 0.0170, -0.0376};
+double Y_TRANSFORM[] = {-0.0227, -1.0748, -0.0073};
 
 /* Convenience declaration */
 using json = nlohmann::json;
@@ -78,6 +83,12 @@ using json = nlohmann::json;
 /* Name spaces */
 using namespace std;
 using namespace cv;
+
+//Origin marker
+Vec3d origin_rvecs(0, 0, 0), origin_tvecs(0, 0, 0);
+float z_base = 0.0;
+int origin_marker_id = 3;
+bool found_origin_marker = false;
 
 /* Forward declarations */
 const std::string currentDateTime();
@@ -88,6 +99,7 @@ bool  getJSONInt(auto data, std::string fieldName, int* output);
 
 /* Global variables */
 json powerData;
+json status_data;
 
 /* Tracker parameters */
 int   dictionaryId;
@@ -115,9 +127,11 @@ bool        outputVideoWithMarkers = false;
 //string  codec       = "MPG";
 //int     videoCodec  = CV_FOURCC('M','P','E','G');
 
-/* Codec settings for X264 encoded MP4 files */
-string  codec       = "MP4";
-int videoCodec = 0x21;
+/* Codec settings */
+//string codec = "MPG";
+string codec = "MP4";
+//int videoCodec = CV_FOURCC('M','P','E','G');
+int videoCodec = CV_FOURCC('X', '2', '6', '4');
 
 /* Time stamps */
 auto    lastVideoFrameWrite = Time::now();
@@ -164,14 +178,27 @@ void powerDataCallback(std::string topic, std::string message) {
 	/* Check if an entry vBat exists in the message */
 	if (data.find("vBat") != data.end()) {
 			if(debug) {
-			std::cout << "Power data in callback: " << data["vBat"] << std::endl;
+			     std::cout << "Power data in callback: " << data["vBat"] << std::endl;
 			}
 
 			/* Check if robot id has been extracted from topic */
 			if(id >= 0) {
-			powerData[std::to_string(id)] = data["vBat"];
+			     powerData[std::to_string(id)] = data["vBat"];
 			}
 	}
+
+  /* Write charging status to global powerData JSON dictionary */
+  /* Check if an entry vBat exists in the message */
+  if (data.find("charging") != data.end()) {
+      if(debug) {
+           std::cout << "Power data in callback: " << data["charging"] << std::endl;
+      }
+
+      /* Check if robot id has been extracted from topic */
+      if(id >= 0) {
+        status_data[std::to_string(id)] = ((float) data["charging"] > 0.0);
+      }
+  }
   } catch (const std::exception& e) {
 
   }
@@ -235,9 +262,13 @@ void configCallback(std::string topic, std::string message) {
               /* Create output folder */
               if(createDirectory(folderName)) {
                 /* Open parameterized output stream */
-                openOutputVideo(folderName + "/" + fileName, videoCodec, recordVideoFPS);
-
+                if(!outputVideo.isOpened()) {
+                  openOutputVideo(folderName + "/" + fileName,
+                                    videoCodec, recordVideoFPS);
+                  std::cout << "Video file opened: " << folderName + "/" + fileName
+                            << std::endl;
                 /* Start recording video */
+                }
                 if(outputVideo.isOpened()) {
                   recordVideo = true;
                   std::cout << "Video file opened: " << folderName + "/" + fileName << std::endl;
@@ -248,6 +279,7 @@ void configCallback(std::string topic, std::string message) {
                 std::cout << "Folder creation failed: " << folderName << std::endl;
               }
             }
+
           } else {
             // 2. if run == stop
             // 2.a: stop output stream
@@ -439,13 +471,13 @@ bool createDirectory(std::string folderName) {
 /* -------------------------------------
  *		Calibration utility functions
  * ------------------------------------- */
-double rotate_x(double x, double y) {
-	return cos(ROTATION)*x - sin(ROTATION)*y;
-}
-
-double rotate_y(double x, double y) {
-	return sin(ROTATION)*x + cos(ROTATION)*y;
-}
+// double rotate_x(double x, double y) {
+// 	return cos(ROTATION)*x - sin(ROTATION)*y;
+// }
+//
+// double rotate_y(double x, double y) {
+// 	return sin(ROTATION)*x + cos(ROTATION)*y;
+// }
 
 /* -------------------------------------
  *		Time utility functions
@@ -532,7 +564,7 @@ namespace {
 	        "{v        |       | Input from video file, if ommited, input comes from camera }"
 	        "{ci       | 0     | Camera id if input doesnt come from video (-v) }"
 	        "{c        |       | Camera intrinsic parameters. Needed for camera pose }"
-	        "{l        | 0.1   | Marker side lenght (in meters). Needed for correct scale in camera pose }"
+	        "{l        | 0.1   | Marker side length (in meters). Needed for correct scale in camera pose }"
 	        "{dp       |       | File of marker detector parameters }"
 	        "{r        |       | show rejected candidates too }"
 	        "{vo       |       | Record video to output file }"
@@ -612,6 +644,7 @@ int main(int argc, char *argv[]) {
 	std::cout << "Image size: " << frameSize.width
 						<< " / " << frameSize.height << std::endl;
 
+
 	/* Initialize time stamps */
   lastVideoFrameWrite = Time::now();
   lastImageFrameWrite = Time::now();
@@ -630,6 +663,7 @@ int main(int argc, char *argv[]) {
 	MQTTClient m(parser.get<string>("h"), parser.get<int>("p"));
 	m.start();
 
+
 	/* Set MQTT publishing topic */
 	std::string main_publish_channel  = "overhead_tracker/all_robot_pose_data";
   std::string topicAck              = "overhead_tracker/config_ack";
@@ -646,6 +680,11 @@ int main(int argc, char *argv[]) {
 
 	/* Subscribe to configuration channel */
 	m.subscribe("overhead_tracker/config", stdf_configCallback);
+
+  {
+
+
+  }
 
   /* --------------------------------------------
    *                Main event loop
@@ -705,12 +744,14 @@ int main(int argc, char *argv[]) {
 
       /* Create and send MQTT message */
       if(ids.size() > 0) {
+
         if(estimatePose) {
           /* Create MQTT message */
           json message = {};
 
           /* Populate msg with data */
           for(unsigned int i = 0; i < ids.size(); i++) {
+
             std::string id = std::to_string(ids[i]);
 
             /* Declare variables used for position and angle computation */
@@ -728,18 +769,35 @@ int main(int argc, char *argv[]) {
             }
             cent = cent / 4.;
 
-            message[id]["u"] = cent.x;
-            message[id]["v"] = cent.y;
-
-            /* Add battery voltage data if available, or -1 otherwise */
-            if(powerData.find(id) != powerData.end()) {
-              message[id]["powerData"] = powerData[id];
-            } else {
-              message[id]["powerData"] = -1;
-            }
-
             /* Publish metric or image coordinates based on input flag -m */
             if(useMetric) {
+
+              // Fix the coordinate system based on the origin marker
+              if(ids[i] == origin_marker_id) {
+                if(!found_origin_marker) {
+                  // Store pose of origin marker
+                  origin_rvecs = rvecs[i];
+                  origin_tvecs = tvecs[i];
+				  // Record z-coordinate to track on a plane
+				  z_base = origin_tvecs[2];
+                  origin_tvecs[2] = 0; //Set z to zero, screws with stuff.
+                  found_origin_marker = true;
+                  std::cout << "Stored origin information: " << tvecs[i] << std::endl;
+                }
+                // Make sure that we don't include the origin marker
+                continue;
+              }
+
+              Vec3d trans_rvecs, trans_tvecs;
+              if(found_origin_marker) {
+				//tvecs[i][2] = z_base; // Fix z-coordinate
+                composeRT(-origin_rvecs, Vec3d(0, 0, 0), rvecs[i], tvecs[i]-origin_tvecs, trans_rvecs, trans_tvecs);
+                rvecs[i] = trans_rvecs;
+                tvecs[i] = trans_tvecs;
+			  }
+              //TODO: Remove
+              // std::cout << "tvec: " << tvecs[i] << std::endl;
+
               /* Project world coordinates onto image plane to
                 * compute angle of x-axis, i.e.
                 *
@@ -758,12 +816,18 @@ int main(int argc, char *argv[]) {
               Point2f xM = imgPoints[1] - imgPoints[0];
 
               /* Add pose to msg */
-              message[id]["x"] = tvecs[i][0];
+              message[id]["x"] = tvecs[i][0] + 0.65;
               /* Flip y-axis to make the coordinate system right-handed */
-              message[id]["y"] = -tvecs[i][1];
+              message[id]["y"] = -tvecs[i][1] - 0.35;
               // Add rotatioin to message
               message[id]["theta"] = atan2(-xM.y, xM.x);
             } else {
+
+              // Fix the coordinate system based on the origin marker
+              if(ids[i] == origin_marker_id) {
+                continue;
+              }
+
               /* Compute orientation of marker through corners of
                 * marker in image coordinates
                 */
@@ -777,11 +841,13 @@ int main(int argc, char *argv[]) {
                 *  system right-handed.
                 */
 
-              double x = (cent.x - frameSize.width/2 - OFFSET_X_PX)  * SCALE_X;
-              double y = (frameSize.height/2 - cent.y - OFFSET_Y_PX) * SCALE_Y;
-              double x_temp = rotate_x(x, y);
-              y = rotate_y(x, y);
-              x = x_temp;
+              //double x = (cent.x - frameSize.width/2 - OFFSET_X_PX)  * SCALE_X;
+              //double y = (frameSize.height/2 - cent.y - OFFSET_Y_PX) * SCALE_Y;
+              //double x_temp = rotate_x(x, y);
+              double x_temp = (cent.x - frameSize.width/2)*SCALE_X;
+              double y_temp = (frameSize.height/2 - cent.y)*SCALE_Y;
+              double x = -(x_temp*X_TRANSFORM[0] + y_temp*X_TRANSFORM[1] + X_TRANSFORM[2]);
+              double y = -(x_temp*Y_TRANSFORM[0] + y_temp*Y_TRANSFORM[1] + Y_TRANSFORM[2]);
 
               /* Add coordinates to MQTT message */
               message[id]["x"] = x;
@@ -789,6 +855,20 @@ int main(int argc, char *argv[]) {
 
               // We compute theta using the average of the corner points
               message[id]["theta"] = atan2(-(dP.y + dP2.y)/2.0, (dP.x + dP2.x)/2.0);
+            }
+
+            /* Add battery voltage data if available, or -1 otherwise */
+            if(powerData.find(id) != powerData.end()) {
+              message[id]["powerData"] = powerData[id];
+            } else {
+              message[id]["powerData"] = -1;
+            }
+
+            /* Add battery voltage data if available, or -1 otherwise */
+            if(status_data.find(id) != status_data.end()) {
+              message[id]["charging"] = status_data[id];
+            } else {
+              message[id]["charging"] = -1;
             }
           }
 
@@ -810,13 +890,9 @@ int main(int argc, char *argv[]) {
       imshow("out", imageCopy);
 
       char key = (char)waitKey(1);
-      if(key == 27) {
-        std::cout << "Escape pressed" << std::endl;
-        break;
-      }
+      if(key == 27) break;
     } catch (int e) {
       // TODO: Exception handling
-      std::cout << e << std::endl;
     }
 
     /* Debug output if desired */
