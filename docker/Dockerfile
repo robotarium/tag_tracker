@@ -47,7 +47,21 @@ RUN sudo apt-get -qq update && \
                            libtheora-dev libvorbis-dev libxvidcore-dev x264 v4l-utils unzip
 
 # Install some required libraries (git has been added to this list)
-RUN sudo apt-get -y install build-essential gcc make cmake cmake-gui cmake-curses-gui libssl-dev doxygen graphviz yasm nasm git
+RUN sudo apt-get -y install build-essential gcc make cmake cmake-gui cmake-curses-gui libssl-dev doxygen graphviz yasm git
+
+# Install wget 
+RUN sudo apt-get -y install wget
+
+# Install NASM from source for x264 compatibility 
+RUN wget http://www.nasm.us/pub/nasm/releasebuilds/2.13.01/nasm-2.13.01.tar.xz
+RUN tar -xvf nasm-2.13.01.tar.xz && \
+	cd nasm-2.13.01 && \
+	./configure --prefix=/usr && \
+	make && \
+	make install
+
+# Get out of this directory
+RUN cd ../ 
 
 # Install X264 library from source
 RUN git clone git://git.videolan.org/x264.git && \
@@ -58,14 +72,14 @@ RUN git clone git://git.videolan.org/x264.git && \
     cd ..
 
 # Install liblame. First, download the tar file from the internet.
-RUN sudo apt-get -y install wget
+RUN mkdir /home/developer/programs
 RUN cd $PROGRAMDIR && \
 	wget https://sourceforge.net/projects/lame/files/lame/3.99/lame-3.99.5.tar.gz && \
     tar -xvzf lame-3.99.5.tar.gz && \
     cd lame-3.99.5 && \
     ./configure && \
     make -j $(($(nproc) - 1)) && \
-    make install && \
+    make install
 
 # Install FFMpeg library
 #RUN git clone https://github.com/FFmpeg/FFmpeg.git && \
@@ -131,14 +145,15 @@ RUN sudo apt-get install libgl1-mesa-dev mesa-common-dev
 RUN sudo apt-get -y install liblapack-dev libblas3 libblas-dev liblapack3 liblapacke libatlas3-base libeigen3-dev
 
 #Download the OpenCV contrib libraries
-RUN git clone https://github.com/opencv/opencv_contrib.git
+RUN cd $PROGRAMDIR && \
+	git clone https://github.com/opencv/opencv_contrib.git
 
 # Compile OpenCV
 RUN cd $PROGRAMDIR && \
 	git clone https://github.com/opencv/opencv.git && \
     cd opencv && \
     mkdir build && cd build && \
-    cmake -D CMAKE_BUILD_TYPE=Release -D OPENCV_EXTRA_MODULES_PATH=/home/TheDocker/opencv_contrib/modules -D BUILD_opencv_python3=OFF -D \ 
+    cmake -D CMAKE_BUILD_TYPE=Release -D OPENCV_EXTRA_MODULES_PATH=/home/developer/programs/opencv_contrib/modules -D BUILD_opencv_python3=OFF -D \ 
     BUILD_PYTHON_SUPPORT=OFF -D WITH_TBB=ON -D WITH_V4L=ON -D BUILD_EXAMPLES=OFF -D BUILD_NEW_PYTHON_SUPPORT=OFF -D WITH_GSTREAMER=OFF -D \ 
     WITH_OPENGL=ON -D WITH_QT=OFF .. && \
     make -j $(($(nproc) - 1)) && \
@@ -165,6 +180,7 @@ RUN cd $PROGRAMDIR && \
 RUN cd $PROGRAMDIR && \
 	git clone https://github.com/robotarium/tag_tracker.git && \
     cd tag_tracker && \
+	git checkout Dockerization && \
     mkdir build && cd build && \
     cmake .. && \
     make -j $(($(nproc) - 1)) 
