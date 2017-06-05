@@ -613,7 +613,7 @@ int main(int argc, char *argv[]) {
 	}
 
 	/* Add corner refinement in markers */
-	detectorParams->cornerRefinementMethod = 1;
+	detectorParams->cornerRefinementMethod = 2;
 
 	/* Instantiate dictionary containing tags */
 	Ptr<aruco::Dictionary> dictionary =
