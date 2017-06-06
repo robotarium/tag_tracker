@@ -790,7 +790,7 @@ int main(int argc, char *argv[]) {
 
               Vec3d trans_rvecs, trans_tvecs;
               if(found_origin_marker) {
-		            tvecs[i][2] = z_base; // Fix z-coordinate
+		            // tvecs[i][2] = z_base; // Fix z-coordinate
                 composeRT(-origin_rvecs, Vec3d(0, 0, 0), rvecs[i], tvecs[i]-origin_tvecs, trans_rvecs, trans_tvecs);
                 rvecs[i] = trans_rvecs;
                 tvecs[i] = trans_tvecs;
