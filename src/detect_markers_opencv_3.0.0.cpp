@@ -818,11 +818,11 @@ int main(int argc, char *argv[]) {
 
               // Fix the coordinate system based on the origin marker
               if(ids[i] == origin_marker_id) {
-                if(!found_origin_marker) {
-                  // Store pose of origin marker
-                  origin_rvecs = rvecs[i];
-                  origin_tvecs = tvecs[i];
-
+                // Store pose of origin marker (always)
+                origin_rvecs = rvecs[i];
+                origin_tvecs = tvecs[i];
+                
+				if(!found_origin_marker) {
                   cv::Mat R_cv;
                   cv::Rodrigues(origin_rvecs, R_cv);
                   cv::Mat t_cv;
@@ -836,7 +836,7 @@ int main(int argc, char *argv[]) {
                 }
                 // Make sure that we don't include the origin marker
                 continue;
-              }
+             }
 
               Vec3d trans_rvecs, trans_tvecs;
               if(found_origin_marker) {
