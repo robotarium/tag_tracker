@@ -101,8 +101,41 @@ bool  openOutputVideo(std::string filename, int codec, int fps);
 bool  createDirectory(std::string folderName);
 bool  getJSONString(auto data, std::string fieldName, std::string* output);
 bool  getJSONInt(auto data, std::string fieldName, int* output);
-cv::Mat vec3dToMat(cv::Vec3d in);
 static void onMouse(int event, int x, int y, int, void*);
+// homography stuffs -----------------------------------------------------------
+bool find_homography_to_reference_markers_image_plane(
+  VideoCapture cam,
+  Ptr<aruco::Dictionary> dictionary,
+  Ptr<aruco::DetectorParameters> detectorParams,
+  const vector< int > REFERENCE_MARKER_IDS,
+  const vector< Point2f > reference_markers_image_plane_WORLD_PLANE,
+  Mat& H);
+cv::Mat point2f_to_homogeneous_mat_point(
+  cv::Point2f in
+);
+cv::Point2f mat_point_to_homogeneous_point2f(
+  cv::Mat in
+);
+Point2f find_marker_center(
+  vector< Point2f > corners
+);
+Point2f map_marker_from_image_to_world(
+  vector< Point2f > marker,
+  Mat H
+);
+Point2f map_point_from_image_to_world(
+  Point2f marker,
+  Mat H
+);
+float get_marker_orientation(
+  vector< Point2f > marker,
+  Mat H
+);
+Point3f get_robot_pose(
+  vector< Point2f > marker,
+  Mat H
+);
+// -----------------------------------------------------------------------------
 
 /* Global variables */
 json powerData;
@@ -622,6 +655,130 @@ static void onMouse(int event, int x, int y, int, void*) {
     }
 }
 
+bool find_homography_to_reference_markers_image_plane(
+  VideoCapture cam,
+  Ptr<aruco::Dictionary> dictionary,
+  Ptr<aruco::DetectorParameters> detectorParams,
+  const vector< int > REFERENCE_MARKER_IDS,
+  const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE,
+  Mat& H) {
+
+  Mat img;
+  vector< vector< Point2f > > corners, rejected, reference_markers_image_plane;
+  std::vector< int > ids;
+
+  while(waitKey(30) != 27){
+
+    cam >> img;
+
+    aruco::detectMarkers(img, dictionary, corners, ids, detectorParams, rejected);
+
+    if (ids.size() > 0) {
+
+      reference_markers_image_plane.clear();
+
+      for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+        vector< int >::iterator iter = find(ids.begin(), ids.end(), REFERENCE_MARKER_IDS[i]);
+        if (iter != ids.end()){
+          int idx = distance(ids.begin(), iter);
+          reference_markers_image_plane.push_back(corners[idx]);
+        }
+      }
+
+      if (reference_markers_image_plane.size() == REFERENCE_MARKER_IDS.size()){
+        //cout << "found them" << endl;
+        vector< Point2f > image_points, world_points;
+        for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+          image_points.push_back(
+            Point2f(
+              0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x),
+              0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y)
+            )
+          );
+          world_points.push_back(REFERENCE_MARKERS_WORLD_PLANE[i]);
+        }
+        //cout << "Computing homography between the image point:\n" << image_points << "\nand the world points:\n" << world_points << endl << "...";
+
+        H = findHomography(image_points, world_points);
+
+        //cout << "homography:\n" << H << endl;
+
+        return true;
+      }
+
+      cv::aruco::drawDetectedMarkers(img, corners, ids);
+    }
+
+    imshow("out", img);
+  }
+}
+
+cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in)
+{
+    cv::Mat out(3,1, CV_64FC1);
+    out.at<double>(0,0) = in.x;
+    out.at<double>(1,0) = in.y;
+    out.at<double>(2,0) = 1.0;
+    return out;
+}
+
+cv::Point2f mat_point_to_homogeneous_point2f(cv::Mat in)
+{
+    cv::Point2f out;
+    out.x = in.at<double>(0,0) / in.at<double>(2,0);
+    out.y = in.at<double>(1,0) / in.at<double>(2,0);
+    return out;
+}
+
+
+Point2f find_marker_center(vector< Point2f > corners) {
+  return Point2f(
+    0.25*(corners[0].x+corners[1].x+corners[2].x+corners[3].x),
+    0.25*(corners[0].y+corners[1].y+corners[2].y+corners[3].y)
+  );
+}
+
+Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H) {
+  Mat homog_world_point, homog_image_point;
+  Point2f marker_center;
+
+  // TODO: undistort before homography
+
+  marker_center = find_marker_center(marker);
+
+  homog_image_point = point2f_to_homogeneous_mat_point(marker_center);
+
+  homog_world_point = H*homog_image_point;
+
+  return mat_point_to_homogeneous_point2f(homog_world_point);
+}
+
+Point2f map_point_from_image_to_world(Point2f marker, Mat H) {
+  Mat homog_world_point, homog_image_point;
+
+  // TODO: undistort before homography
+
+  homog_image_point = point2f_to_homogeneous_mat_point(marker);
+
+  homog_world_point = H*homog_image_point;
+
+  return mat_point_to_homogeneous_point2f(homog_world_point);
+}
+
+float get_marker_orientation(vector< Point2f > marker, Mat H){
+  vector< Point2f > center_world;
+  for (int i = 0; i < 4; i++)
+    center_world.push_back(map_point_from_image_to_world(marker[i], H));
+  Point2f forward_vector = (center_world[1]+center_world[2]-center_world[0]-center_world[3])/2;
+  return atan2(forward_vector.y, forward_vector.x);
+}
+
+Point3f get_robot_pose(vector< Point2f > marker, Mat H) {
+  Point2f position = map_marker_from_image_to_world(marker, H);
+  float orientation = get_marker_orientation(marker, H);
+  return Point3f(position.x, position.y, orientation);
+}
+
 /* --------------------------------------
  *		        MAIN FUNCTION
  * -------------------------------------- */
@@ -657,6 +814,14 @@ int main(int argc, char *argv[]) {
 			return 0;
 		}
 	}
+
+  const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
+    Point2f(0.652, -0.3825),
+    Point2f(0.657, 0.2625),
+    Point2f(-0.650, 0.2015),
+    Point2f(-0.647, -0.3875)};
+  const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
+  vector< Point2f > REFERENCE_MARKERS_IMAGE_PLANE;
 
 	/* Add corner refinement in markers */
 	//detectorParams->cornerRefinementMethod = 2;
@@ -730,6 +895,16 @@ int main(int argc, char *argv[]) {
   namedWindow("out", 1);
   setMouseCallback("out", onMouse, 0);
 
+  Mat H;
+  find_homography_to_reference_markers_image_plane(
+    inputVideo,
+    dictionary,
+    detectorParams,
+    REFERENCE_MARKER_IDS,
+    REFERENCE_MARKERS_WORLD_PLANE,
+    H
+  );
+
   /* --------------------------------------------
    *                Main event loop
    * -------------------------------------------- */
@@ -747,21 +922,21 @@ int main(int argc, char *argv[]) {
       /* Detect markers and estimate pose */
       aruco::detectMarkers(image, dictionary, corners, ids,
                             detectorParams, rejected);
-      if(estimatePose && ids.size() > 0) {
-        aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix,
-                                          distCoeffs, rvecs, tvecs);
-      }
+      // if(estimatePose && ids.size() > 0) {
+      //   aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix,
+      //                                     distCoeffs, rvecs, tvecs);
+      // }
 
       /* Render results */
       image.copyTo(imageCopy);
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        if(estimatePose) {
-          for(unsigned int i = 0; i < ids.size(); i++) {
-            aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
-                          rvecs[i], tvecs[i], markerLength * 0.5f);
-          }
-        }
+        // if(estimatePose) {
+        //   for(unsigned int i = 0; i < ids.size(); i++) {
+        //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
+        //                   rvecs[i], tvecs[i], markerLength * 0.5f);
+        //   }
+        // }
       }
 
       /* Write frame to video at specified fps if appropriate flags are set */
@@ -816,45 +991,18 @@ int main(int argc, char *argv[]) {
             /* Publish metric or image coordinates based on input flag -m */
             if(useMetric) {
 
-              // Fix the coordinate system based on the origin marker
-              if(ids[i] == origin_marker_id) {
-                // Store pose of origin marker (always)
-                origin_rvecs = rvecs[i];
-                origin_tvecs = tvecs[i];
-                
-				if(!found_origin_marker) {
-                  cv::Mat R_cv;
-                  cv::Rodrigues(origin_rvecs, R_cv);
-                  cv::Mat t_cv;
-                  t_cv = vec3dToMat(origin_tvecs);
-                  cv::Mat Rinv_cv;
-                  cv::transpose(R_cv, Rinv_cv);
-                  tinv_cv = -Rinv_cv*t_cv;
-                  cv::Rodrigues(Rinv_cv, Rinvvec_cv);
-
-                  found_origin_marker = true;
-                }
-                // Make sure that we don't include the origin marker
+              if(find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) != REFERENCE_MARKER_IDS.end()) {
                 continue;
-             }
+              }
 
-              Vec3d trans_rvecs, trans_tvecs;
-              if(found_origin_marker) {
-                cv::Mat rvec_ref, tvec_ref;
-                cv::composeRT(rvecs[i], tvecs[i], Rinvvec_cv, tinv_cv, rvec_ref, tvec_ref);
+              Point3f pose = get_robot_pose(corners[i], H);
 
-                cv::Mat o_R_m, o_t_m;
-                cv::composeRT(rvec_ref, tvec_ref, R0vec, t0, o_R_m, o_t_m);
-
-                rvecs[i] = o_R_m;
-                tvecs[i] = o_t_m;
-			        }
               /* Add pose to msg */
-              message[id]["x"] = tvecs[i][0];
+              message[id]["x"] = pose.x;
               /* Flip y-axis to make the coordinate system right-handed */
-              message[id]["y"] = tvecs[i][1];
+              message[id]["y"] = pose.y;
               // Add rotatioin to message
-              message[id]["theta"] = rvecs[i][2];
+              message[id]["theta"] = pose.z;
             } else {
 
               // Fix the coordinate system based on the origin marker
