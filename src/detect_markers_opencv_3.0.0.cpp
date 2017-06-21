@@ -1009,11 +1009,16 @@ int main(int argc, char *argv[]) {
       if(ids.size() > 0) {
 
         if(estimatePose) {
+
+          std::cout << "before json" << std::endl;
+
           /* Create MQTT message */
           json message = {};
 
           /* Populate msg with data */
           for(unsigned int i = 0; i < ids.size(); i++) {
+
+            std::cout << "1" << std::endl;
 
             std::string id = std::to_string(ids[i]);
 
@@ -1034,6 +1039,8 @@ int main(int argc, char *argv[]) {
 
             /* Publish metric or image coordinates based on input flag -m */
             if(useMetric) {
+
+              std::cout << "2" << std::endl;
 
               if(find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) != REFERENCE_MARKER_IDS.end()) {
                 continue;
