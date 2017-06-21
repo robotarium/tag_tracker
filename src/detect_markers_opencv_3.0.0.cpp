@@ -938,14 +938,15 @@ int main(int argc, char *argv[]) {
   setMouseCallback("out", onMouse, 0);
 
   Mat H;
-  find_homography_to_reference_markers_image_plane(
+  if (!find_homography_to_reference_markers_image_plane(
     inputVideo,
     dictionary,
     detectorParams,
     REFERENCE_MARKER_IDS,
     REFERENCE_MARKERS_WORLD_PLANE,
     H
-  );
+  ))
+    return 0;
 
   /* --------------------------------------------
    *                Main event loop
@@ -1035,7 +1036,7 @@ int main(int argc, char *argv[]) {
             if(useMetric) {
 
               if(find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) != REFERENCE_MARKER_IDS.end()) {
-                return 0;
+                continue;
               }
 
               Point3f pose = get_robot_pose(corners[i], H);
