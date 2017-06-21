@@ -1097,9 +1097,7 @@ int main(int argc, char *argv[]) {
               message[id]["charging"] = -1;
             }
 
-            double batteryLevel = -1;
-            if (powerData[id] != NULL)
-                batteryLevel = static_cast<double>(powerData[id]);
+            double batteryLevel = (double) message[id]["powerData"];
 
 						ss.str("");
 						ss.clear();
