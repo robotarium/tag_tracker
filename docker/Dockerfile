@@ -171,7 +171,7 @@ RUN cd $PROGRAMDIR && \
 RUN sudo apt-get install -y libcanberra-gtk-module libcanberra-gtk3-module
 
 # Add this line to prevent caching 
-ENV updated-adds-on 06-06-2017-3
+ENV updated-adds-on 06-21-2017
 
 # Now that openCV is installed, download the tag tracker and compile it!
 RUN cd $PROGRAMDIR && \
