@@ -673,7 +673,7 @@ bool find_homography_to_reference_markers_image_plane(
   vector< vector< Point2f > > corners, rejected, reference_markers_image_plane;
   std::vector< int > ids;
 
-  while(waitKey(30) != 27){
+  while(true){
 
     try {
 
@@ -719,11 +719,16 @@ bool find_homography_to_reference_markers_image_plane(
 
       imshow("out", img);
 
+      char key = (char)waitKey(10);
+      if(key == 27) break;
+
     } catch (int e) {
       // TODO: Exception handling
     }
 
   }
+
+  return false;
 }
 
 cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in)
@@ -846,12 +851,18 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+  // const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
+  //   Point2f(0.652, -0.3825),
+  //   Point2f(0.657, 0.2625),
+  //   Point2f(-0.650, 0.2015),
+  //   Point2f(-0.647, -0.3875)};
+  // const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
   const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
-    Point2f(0.652, -0.3825),
-    Point2f(0.657, 0.2625),
-    Point2f(-0.650, 0.2015),
-    Point2f(-0.647, -0.3875)};
-  const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
+    Point2f(0,1),
+    Point2f(1,1),
+    Point2f(1,0),
+    Point2f(0,0)};
+  const vector< int > REFERENCE_MARKER_IDS = {47, 46, 48, 3};
   vector< Point2f > REFERENCE_MARKERS_IMAGE_PLANE;
 
 	/* Add corner refinement in markers */
@@ -927,14 +938,16 @@ int main(int argc, char *argv[]) {
   setMouseCallback("out", onMouse, 0);
 
   Mat H;
-  find_homography_to_reference_markers_image_plane(
+  if (!find_homography_to_reference_markers_image_plane(
     inputVideo,
     dictionary,
     detectorParams,
     REFERENCE_MARKER_IDS,
     REFERENCE_MARKERS_WORLD_PLANE,
     H
-  );
+  )){
+    return 0;
+  };
 
   /* --------------------------------------------
    *                Main event loop
@@ -962,7 +975,7 @@ int main(int argc, char *argv[]) {
       image.copyTo(imageCopy);
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
+        //draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
         // if(estimatePose) {
         //   for(unsigned int i = 0; i < ids.size(); i++) {
         //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
