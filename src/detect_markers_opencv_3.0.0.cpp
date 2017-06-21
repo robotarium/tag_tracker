@@ -135,6 +135,12 @@ Point3f get_robot_pose(
   vector< Point2f > marker,
   Mat H
 );
+void draw_xy_axes(
+  Mat& img,
+  vector< vector< Point2f > >markers,
+  vector<int> ids,
+  const vector< int > REFERENCE_MARKER_IDS
+);
 // -----------------------------------------------------------------------------
 
 /* Global variables */
@@ -779,6 +785,18 @@ Point3f get_robot_pose(vector< Point2f > marker, Mat H) {
   return Point3f(position.x, position.y, orientation);
 }
 
+void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > REFERENCE_MARKER_IDS) {
+  Point2f pt1, pt2;
+  for (int i = 0; i < markers.size(); i++) {
+    if (find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) == REFERENCE_MARKER_IDS.end()) {
+      pt1 = find_marker_center(markers[i]);
+      pt2 = (markers[i][1] + markers[i][2]) / 2;
+      pt2 = pt1 + 2*(pt2-pt1);
+      line(img, pt1, pt2, Scalar(0,127,255), 2);
+    }
+  }
+}
+
 /* --------------------------------------
  *		        MAIN FUNCTION
  * -------------------------------------- */
@@ -931,6 +949,7 @@ int main(int argc, char *argv[]) {
       image.copyTo(imageCopy);
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
+        draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
         // if(estimatePose) {
         //   for(unsigned int i = 0; i < ids.size(); i++) {
         //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
