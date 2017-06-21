@@ -937,6 +937,8 @@ int main(int argc, char *argv[]) {
   namedWindow("out", 1);
   //setMouseCallback("out", onMouse, 0);
 
+  std::cout << "before everything" << std::endl;
+
   Mat H;
   if (!find_homography_to_reference_markers_image_plane(
     inputVideo,
