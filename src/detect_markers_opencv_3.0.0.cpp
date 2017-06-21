@@ -2,28 +2,21 @@
 By downloading, copying, installing or using the software you agree to this
 license. If you do not agree to this license, do not download, install,
 copy or use the software.
-
                           License Agreement
                For Open Source Computer Vision Library
                        (3-clause BSD License)
-
 Copyright (C) 2013, OpenCV Foundation, all rights reserved.
 Third party copyrights are property of their respective owners.
-
 Redistribution and use in source and binary forms, with or without modification,
 are permitted provided that the following conditions are met:
-
   * Redistributions of source code must retain the above copyright notice,
     this list of conditions and the following disclaimer.
-
   * Redistributions in binary form must reproduce the above copyright notice,
     this list of conditions and the following disclaimer in the documentation
     and/or other materials provided with the distribution.
-
   * Neither the names of the copyright holders nor the names of the contributors
     may be used to endorse or promote products derived from this software
     without specific prior written permission.
-
 This software is provided by the copyright holders and contributors "as is" and
 any express or implied warranties, including, but not limited to, the implied
 warranties of merchantability and fitness for a particular purpose are
@@ -37,7 +30,6 @@ the use of this software, even if advised of the possibility of such damage.
 */
 
 #include <opencv2/highgui.hpp>
-#include <opencv2/imgproc.hpp>
 #include <opencv2/core.hpp>
 #include <opencv2/aruco.hpp>
 
@@ -87,13 +79,9 @@ using namespace cv;
 
 //Origin marker
 Vec3d origin_rvecs(0, 0, 0), origin_tvecs(0, 0, 0);
-// origin offsett (pose of the 'reference marker reference system' in the 'origin reference system')
-cv::Mat R0vec = (cv::Mat_<double>(3,1) << 0, 0, 0),
-        t0 = (cv::Mat_<double>(3,1) << 0.65, -0.33, 0);
 float z_base = 0.0;
-int origin_marker_id = 22;
+int origin_marker_id = 3;
 bool found_origin_marker = false;
-cv::Mat tinv_cv, Rinvvec_cv; // inverse transform to origin marker
 
 /* Forward declarations */
 const std::string currentDateTime();
@@ -101,54 +89,10 @@ bool  openOutputVideo(std::string filename, int codec, int fps);
 bool  createDirectory(std::string folderName);
 bool  getJSONString(auto data, std::string fieldName, std::string* output);
 bool  getJSONInt(auto data, std::string fieldName, int* output);
-static void onMouse(int event, int x, int y, int, void*);
-// homography stuffs -----------------------------------------------------------
-bool find_homography_to_reference_markers_image_plane(
-  VideoCapture& cam,
-  Ptr<aruco::Dictionary> dictionary,
-  Ptr<aruco::DetectorParameters> detectorParams,
-  const vector< int > REFERENCE_MARKER_IDS,
-  const vector< Point2f > reference_markers_image_plane_WORLD_PLANE,
-  Mat& H);
-cv::Mat point2f_to_homogeneous_mat_point(
-  cv::Point2f in
-);
-cv::Point2f mat_point_to_homogeneous_point2f(
-  cv::Mat in
-);
-Point2f find_marker_center(
-  vector< Point2f > corners
-);
-Point2f map_marker_from_image_to_world(
-  vector< Point2f > marker,
-  Mat H
-);
-Point2f map_point_from_image_to_world(
-  Point2f marker,
-  Mat H
-);
-float get_marker_orientation(
-  vector< Point2f > marker,
-  Mat H
-);
-Point3f get_robot_pose(
-  vector< Point2f > marker,
-  Mat H
-);
-void draw_xy_axes(
-  Mat& img,
-  vector< vector< Point2f > >markers,
-  vector<int> ids,
-  const vector< int > REFERENCE_MARKER_IDS
-);
-// -----------------------------------------------------------------------------
 
 /* Global variables */
 json powerData;
 json status_data;
-std::map< std::string, vector<double> > robotImagePosition;
-std::map< std::string, bool > closeToGritsbot, clickedOnGritsbot;
-std::ostringstream ss;
 
 /* Tracker parameters */
 int   dictionaryId;
@@ -587,7 +531,7 @@ static bool readDetectorParameters(string filename, Ptr<aruco::DetectorParameter
     fs["minCornerDistanceRate"] >> params->minCornerDistanceRate;
     fs["minDistanceToBorder"] >> params->minDistanceToBorder;
     fs["minMarkerDistanceRate"] >> params->minMarkerDistanceRate;
-    //fs["cornerRefinementMethod"] >> params->cornerRefinementMethod;
+    fs["cornerRefinementMethod"] >> params->cornerRefinementMethod;
     fs["cornerRefinementWinSize"] >> params->cornerRefinementWinSize;
     fs["cornerRefinementMaxIterations"] >> params->cornerRefinementMaxIterations;
     fs["cornerRefinementMinAccuracy"] >> params->cornerRefinementMinAccuracy;
@@ -623,196 +567,6 @@ namespace {
 			    "{mqtt     |       |  MQTT setup information}"
 			    "{h        | localhost | MQTT broker }"
 			    "{p        | 1883      | MQTT port }";
-}
-
-cv::Mat vec3dToMat(cv::Vec3d in)
-{
-    cv::Mat out(3,1, CV_64FC1);
-    out.at<double>(0,0) = in[0];
-    out.at<double>(1,0) = in[1];
-    out.at<double>(2,0) = in[2];
-    return out;
-}
-
-static void onMouse(int event, int x, int y, int, void*) {
-    switch (event) {
-    case EVENT_MOUSEMOVE:
-        for (map<string, vector<double> >::iterator id = robotImagePosition.begin(); id != robotImagePosition.end(); id++) {
-            int u = robotImagePosition[id->first][0];
-            int v = robotImagePosition[id->first][1];
-            if (abs(x - u) < 30 && abs(y - v) < 30)
-                closeToGritsbot[id->first] = true;
-            else
-                closeToGritsbot[id->first] = false;
-        }
-        break;
-    case EVENT_LBUTTONDOWN:
-        for (map<string, vector<double> >::iterator id = robotImagePosition.begin(); id != robotImagePosition.end(); id++) {
-            if (closeToGritsbot[id->first]) {
-                if (!clickedOnGritsbot[id->first])
-                    clickedOnGritsbot[id->first] = true;
-                else
-                    clickedOnGritsbot[id->first] = false;
-            }
-        }
-        break;
-    default:
-        break;
-    }
-}
-
-bool find_homography_to_reference_markers_image_plane(
-  VideoCapture& cam,
-  Ptr<aruco::Dictionary> dictionary,
-  Ptr<aruco::DetectorParameters> detectorParams,
-  const vector< int > REFERENCE_MARKER_IDS,
-  const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE,
-  Mat& H) {
-
-  Mat img;
-  vector< vector< Point2f > > corners, rejected, reference_markers_image_plane;
-  std::vector< int > ids;
-
-  while(true){
-
-    try {
-
-      cam >> img;
-
-      aruco::detectMarkers(img, dictionary, corners, ids, detectorParams, rejected);
-
-      if (ids.size() > 0) {
-
-        reference_markers_image_plane.clear();
-
-        for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
-          vector< int >::iterator iter = find(ids.begin(), ids.end(), REFERENCE_MARKER_IDS[i]);
-          if (iter != ids.end()){
-            int idx = distance(ids.begin(), iter);
-            reference_markers_image_plane.push_back(corners[idx]);
-          }
-        }
-
-        if (reference_markers_image_plane.size() == REFERENCE_MARKER_IDS.size()){
-          //cout << "found them" << endl;
-          vector< Point2f > image_points, world_points;
-          for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
-            image_points.push_back(
-              Point2f(
-                0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x),
-                0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y)
-              )
-            );
-            world_points.push_back(REFERENCE_MARKERS_WORLD_PLANE[i]);
-          }
-          //cout << "Computing homography between the image point:\n" << image_points << "\nand the world points:\n" << world_points << endl << "...";
-
-          H = findHomography(image_points, world_points);
-
-          //cout << "homography:\n" << H << endl;
-
-          return true;
-        }
-
-        cv::aruco::drawDetectedMarkers(img, corners, ids);
-      }
-
-      imshow("out", img);
-
-      char key = (char)waitKey(10);
-      if(key == 27) break;
-
-    } catch (int e) {
-      // TODO: Exception handling
-    }
-
-  }
-
-  return false;
-}
-
-cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in)
-{
-    cv::Mat out(3,1, CV_64FC1);
-    out.at<double>(0,0) = in.x;
-    out.at<double>(1,0) = in.y;
-    out.at<double>(2,0) = 1.0;
-    return out;
-}
-
-cv::Point2f mat_point_to_homogeneous_point2f(cv::Mat in)
-{
-    cv::Point2f out;
-    out.x = in.at<double>(0,0) / in.at<double>(2,0);
-    out.y = in.at<double>(1,0) / in.at<double>(2,0);
-    return out;
-}
-
-
-Point2f find_marker_center(vector< Point2f > corners) {
-  return Point2f(
-    0.25*(corners[0].x+corners[1].x+corners[2].x+corners[3].x),
-    0.25*(corners[0].y+corners[1].y+corners[2].y+corners[3].y)
-  );
-}
-
-Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H) {
-  Mat homog_world_point, homog_image_point;
-  Point2f marker_center;
-
-  // TODO: undistort before homography
-
-  marker_center = find_marker_center(marker);
-
-  homog_image_point = point2f_to_homogeneous_mat_point(marker_center);
-
-  homog_world_point = H*homog_image_point;
-
-  return mat_point_to_homogeneous_point2f(homog_world_point);
-}
-
-Point2f map_point_from_image_to_world(Point2f marker, Mat H) {
-  Mat homog_world_point, homog_image_point;
-
-  // TODO: undistort before homography
-
-  homog_image_point = point2f_to_homogeneous_mat_point(marker);
-
-  homog_world_point = H*homog_image_point;
-
-  return mat_point_to_homogeneous_point2f(homog_world_point);
-}
-
-float get_marker_orientation(vector< Point2f > marker, Mat H){
-  vector< Point2f > center_world;
-  for (int i = 0; i < 4; i++)
-    center_world.push_back(map_point_from_image_to_world(marker[i], H));
-  Point2f forward_vector = (center_world[1]+center_world[2]-center_world[0]-center_world[3])/2;
-  return atan2(forward_vector.y, forward_vector.x);
-}
-
-Point3f get_robot_pose(vector< Point2f > marker, Mat H) {
-  Point2f position = map_marker_from_image_to_world(marker, H);
-  float orientation = get_marker_orientation(marker, H);
-  return Point3f(position.x, position.y, orientation);
-}
-
-void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > REFERENCE_MARKER_IDS) {
-  Point2f pt1, pt2;
-  for (int i = 0; i < markers.size(); i++) {
-    if (find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) == REFERENCE_MARKER_IDS.end()) {
-      pt1 = find_marker_center(markers[i]);
-      pt2 = (markers[i][1] + markers[i][2]) / 2;
-      pt2 = pt1 + 2*(pt2-pt1);
-      line(img, pt1, pt2, Scalar(0,127,255), 2);
-    } else {
-      Mat vertices = (Mat_<int>(4,2) << markers[i][0].x, markers[i][0].y,
-                                        markers[i][1].x, markers[i][1].y,
-                                        markers[i][2].x, markers[i][2].y,
-                                        markers[i][3].x, markers[i][3].y);
-      fillConvexPoly(img, vertices, Scalar(0, 127, 255));
-    }
-  }
 }
 
 /* --------------------------------------
@@ -851,22 +605,8 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-  const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
-    Point2f(0.652, -0.3825),
-    Point2f(0.657, 0.2625),
-    Point2f(-0.650, 0.2015),
-    Point2f(-0.647, -0.3875)};
-  const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
-  // const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
-  //   Point2f(-.25, .2),
-  //   Point2f(.25, .2),
-  //   Point2f(.25, -.2),
-  //   Point2f(-.25, -.2)};
-  // const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
-  vector< Point2f > REFERENCE_MARKERS_IMAGE_PLANE;
-
 	/* Add corner refinement in markers */
-	//detectorParams->cornerRefinementMethod = 2;
+	detectorParams->cornerRefinementMethod = 2;
 
 	/* Instantiate dictionary containing tags */
 	Ptr<aruco::Dictionary> dictionary =
@@ -934,20 +674,10 @@ int main(int argc, char *argv[]) {
 	/* Subscribe to configuration channel */
 	m.subscribe("overhead_tracker/config", stdf_configCallback);
 
-  namedWindow("out", 1);
-  setMouseCallback("out", onMouse, 0);
+  {
 
-  Mat H;
-  if (!find_homography_to_reference_markers_image_plane(
-    inputVideo,
-    dictionary,
-    detectorParams,
-    REFERENCE_MARKER_IDS,
-    REFERENCE_MARKERS_WORLD_PLANE,
-    H
-  )){
-    return 0;
-  };
+
+  }
 
   /* --------------------------------------------
    *                Main event loop
@@ -966,22 +696,21 @@ int main(int argc, char *argv[]) {
       /* Detect markers and estimate pose */
       aruco::detectMarkers(image, dictionary, corners, ids,
                             detectorParams, rejected);
-      // if(estimatePose && ids.size() > 0) {
-      //   aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix,
-      //                                     distCoeffs, rvecs, tvecs);
-      // }
+      if(estimatePose && ids.size() > 0) {
+        aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix,
+                                          distCoeffs, rvecs, tvecs);
+      }
 
       /* Render results */
       image.copyTo(imageCopy);
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
-        // if(estimatePose) {
-        //   for(unsigned int i = 0; i < ids.size(); i++) {
-        //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
-        //                   rvecs[i], tvecs[i], markerLength * 0.5f);
-        //   }
-        // }
+        if(estimatePose) {
+          for(unsigned int i = 0; i < ids.size(); i++) {
+            aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
+                          rvecs[i], tvecs[i], markerLength * 0.5f);
+          }
+        }
       }
 
       /* Write frame to video at specified fps if appropriate flags are set */
@@ -1036,18 +765,55 @@ int main(int argc, char *argv[]) {
             /* Publish metric or image coordinates based on input flag -m */
             if(useMetric) {
 
-              if(find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) != REFERENCE_MARKER_IDS.end()) {
+              // Fix the coordinate system based on the origin marker
+              if(ids[i] == origin_marker_id) {
+                if(!found_origin_marker) {
+                  // Store pose of origin marker
+                  origin_rvecs = rvecs[i];
+                  origin_tvecs = tvecs[i];
+	                // Record z-coordinate to track on a plane
+		              z_base = origin_tvecs[2];
+                  origin_tvecs[2] = 0; //Set z to zero, screws with stuff.
+                  found_origin_marker = true;
+                  std::cout << "Stored origin information: " << tvecs[i] << std::endl;
+                }
+                // Make sure that we don't include the origin marker
                 continue;
               }
 
-              Point3f pose = get_robot_pose(corners[i], H);
+              Vec3d trans_rvecs, trans_tvecs;
+              if(found_origin_marker) {
+		            // tvecs[i][2] = z_base; // Fix z-coordinate
+                composeRT(-origin_rvecs, Vec3d(0, 0, 0), rvecs[i], tvecs[i]-origin_tvecs, trans_rvecs, trans_tvecs);
+                rvecs[i] = trans_rvecs;
+                tvecs[i] = trans_tvecs;
+			  }
+              //TODO: Remove
+              // std::cout << "tvec: " << tvecs[i] << std::endl;
+
+              /* Project world coordinates onto image plane to
+                * compute angle of x-axis, i.e.
+                *
+                *  1. project point (0,0,0) into image plane --> o_c
+                *  2. project point (1,0,0) into image plane --> x_M
+                *  3. compute angle between x_M and x_c
+                * */
+              inputPoints.push_back(Point3f(0,0,0));
+              inputPoints.push_back(Point3f(0.1,0,0));
+
+              /* Project points into image plane */
+              // Syntax: cv2::projectPoints(axisPoints, _rvec, _tvec,
+              //              _cameraMatrix, _distCoeffs, imagePoints);
+              projectPoints(inputPoints, rvecs[i], tvecs[i],
+                            camMatrix, distCoeffs, imgPoints);
+              Point2f xM = imgPoints[1] - imgPoints[0];
 
               /* Add pose to msg */
-              message[id]["x"] = pose.x;
+              message[id]["x"] = tvecs[i][0] + 0.65;
               /* Flip y-axis to make the coordinate system right-handed */
-              message[id]["y"] = pose.y;
+              message[id]["y"] = -tvecs[i][1] - 0.35;
               // Add rotatioin to message
-              message[id]["theta"] = pose.z;
+              message[id]["theta"] = atan2(-xM.y, xM.x);
             } else {
 
               // Fix the coordinate system based on the origin marker
@@ -1097,46 +863,6 @@ int main(int argc, char *argv[]) {
             } else {
               message[id]["charging"] = -1;
             }
-
-            double batteryLevel = -1;
-            if (powerData[id] != NULL)
-                batteryLevel = static_cast<double>(powerData[id]);
-
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << batteryLevel;
-            const String powerDataStr = "battery: " + ss.str();
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
-            const String xStr = "x:       " + ss.str();
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
-            const String yStr = "y:       " + ss.str();
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
-            const String thetaStr = "theta:   " + ss.str();
-            vector<double> rip;
-            float u, v;
-            u = 0.25*(corners[i][0].x+corners[i][1].x+corners[i][2].x+corners[i][3].x);
-            v = 0.25*(corners[i][0].y+corners[i][1].y+corners[i][2].y+corners[i][3].y);
-            rip.push_back(u);
-            rip.push_back(v);
-            robotImagePosition[id] = rip;
-
-            if (clickedOnGritsbot[id]) {
-                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-            } else if (closeToGritsbot[id]) {
-                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-						}
           }
 
           /* Send MQTT message as JSON dump */
