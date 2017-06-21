@@ -858,10 +858,10 @@ int main(int argc, char *argv[]) {
   //   Point2f(-0.647, -0.3875)};
   // const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
   const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
-    Point2f(0,1),
-    Point2f(1,1),
-    Point2f(1,0),
-    Point2f(0,0)};
+    Point2f(-.25, .2),
+    Point2f(.25, .2),
+    Point2f(.25, -.2),
+    Point2f(-.25, -.2)};
   const vector< int > REFERENCE_MARKER_IDS = {47, 46, 48, 3};
   vector< Point2f > REFERENCE_MARKERS_IMAGE_PLANE;
 
@@ -975,7 +975,7 @@ int main(int argc, char *argv[]) {
       image.copyTo(imageCopy);
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        //draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
+        draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
         // if(estimatePose) {
         //   for(unsigned int i = 0; i < ids.size(); i++) {
         //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
