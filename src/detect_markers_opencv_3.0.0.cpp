@@ -1039,7 +1039,12 @@ int main(int argc, char *argv[]) {
                 continue;
               }
 
+              std::cout << id << std::endl;
+              std::cout << "getting robot pose" << std::endl;
+
               Point3f pose = get_robot_pose(corners[i], H);
+
+              std::cout << pose.x << " " << pose.y << " " << pose.z << " " << std::endl;
 
               /* Add pose to msg */
               message[id]["x"] = pose.x;
