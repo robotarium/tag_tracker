@@ -974,7 +974,7 @@ int main(int argc, char *argv[]) {
       image.copyTo(imageCopy);
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        //draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
+        draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
         // if(estimatePose) {
         //   for(unsigned int i = 0; i < ids.size(); i++) {
         //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
