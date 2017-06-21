@@ -948,6 +948,8 @@ int main(int argc, char *argv[]) {
   ))
     return 0;
 
+  std::cout << "before everything" << std::endl;
+
   /* --------------------------------------------
    *                Main event loop
    * -------------------------------------------- */
