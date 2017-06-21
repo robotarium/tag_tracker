@@ -862,7 +862,7 @@ int main(int argc, char *argv[]) {
   //   Point2f(.25, .2),
   //   Point2f(.25, -.2),
   //   Point2f(-.25, -.2)};
-  const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
+  // const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
   vector< Point2f > REFERENCE_MARKERS_IMAGE_PLANE;
 
 	/* Add corner refinement in markers */
