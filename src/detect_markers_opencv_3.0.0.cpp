@@ -793,6 +793,13 @@ void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids,
       pt2 = (markers[i][1] + markers[i][2]) / 2;
       pt2 = pt1 + 2*(pt2-pt1);
       line(img, pt1, pt2, Scalar(0,127,255), 2);
+    } else {
+      Mat vertices = (Mat_<int>(4,2) << markers[i][0].x, markers[i][0].y,
+                                        markers[i][1].x, markers[i][1].y,
+                                        markers[i][2].x, markers[i][2].y,
+                                        markers[i][3].x, markers[i][3].y);
+      //fillConvexPoly(img, markers[i], Scalar(0, 127, 255));
+      fillConvexPoly(img, vertices, Scalar(0, 127, 255));
     }
   }
 }
