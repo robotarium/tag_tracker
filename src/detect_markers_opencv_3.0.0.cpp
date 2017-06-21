@@ -104,7 +104,7 @@ bool  getJSONInt(auto data, std::string fieldName, int* output);
 static void onMouse(int event, int x, int y, int, void*);
 // homography stuffs -----------------------------------------------------------
 bool find_homography_to_reference_markers_image_plane(
-  VideoCapture cam,
+  VideoCapture& cam,
   Ptr<aruco::Dictionary> dictionary,
   Ptr<aruco::DetectorParameters> detectorParams,
   const vector< int > REFERENCE_MARKER_IDS,
@@ -662,7 +662,7 @@ static void onMouse(int event, int x, int y, int, void*) {
 }
 
 bool find_homography_to_reference_markers_image_plane(
-  VideoCapture cam,
+  VideoCapture& cam,
   Ptr<aruco::Dictionary> dictionary,
   Ptr<aruco::DetectorParameters> detectorParams,
   const vector< int > REFERENCE_MARKER_IDS,
@@ -675,47 +675,54 @@ bool find_homography_to_reference_markers_image_plane(
 
   while(waitKey(30) != 27){
 
-    cam >> img;
+    try {
 
-    aruco::detectMarkers(img, dictionary, corners, ids, detectorParams, rejected);
+      cam >> img;
 
-    if (ids.size() > 0) {
+      aruco::detectMarkers(img, dictionary, corners, ids, detectorParams, rejected);
 
-      reference_markers_image_plane.clear();
+      if (ids.size() > 0) {
 
-      for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
-        vector< int >::iterator iter = find(ids.begin(), ids.end(), REFERENCE_MARKER_IDS[i]);
-        if (iter != ids.end()){
-          int idx = distance(ids.begin(), iter);
-          reference_markers_image_plane.push_back(corners[idx]);
-        }
-      }
+        reference_markers_image_plane.clear();
 
-      if (reference_markers_image_plane.size() == REFERENCE_MARKER_IDS.size()){
-        //cout << "found them" << endl;
-        vector< Point2f > image_points, world_points;
         for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
-          image_points.push_back(
-            Point2f(
-              0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x),
-              0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y)
-            )
-          );
-          world_points.push_back(REFERENCE_MARKERS_WORLD_PLANE[i]);
+          vector< int >::iterator iter = find(ids.begin(), ids.end(), REFERENCE_MARKER_IDS[i]);
+          if (iter != ids.end()){
+            int idx = distance(ids.begin(), iter);
+            reference_markers_image_plane.push_back(corners[idx]);
+          }
         }
-        //cout << "Computing homography between the image point:\n" << image_points << "\nand the world points:\n" << world_points << endl << "...";
 
-        H = findHomography(image_points, world_points);
+        if (reference_markers_image_plane.size() == REFERENCE_MARKER_IDS.size()){
+          //cout << "found them" << endl;
+          vector< Point2f > image_points, world_points;
+          for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+            image_points.push_back(
+              Point2f(
+                0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x),
+                0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y)
+              )
+            );
+            world_points.push_back(REFERENCE_MARKERS_WORLD_PLANE[i]);
+          }
+          //cout << "Computing homography between the image point:\n" << image_points << "\nand the world points:\n" << world_points << endl << "...";
 
-        //cout << "homography:\n" << H << endl;
+          H = findHomography(image_points, world_points);
 
-        return true;
+          //cout << "homography:\n" << H << endl;
+
+          return true;
+        }
+
+        cv::aruco::drawDetectedMarkers(img, corners, ids);
       }
 
-      cv::aruco::drawDetectedMarkers(img, corners, ids);
+      imshow("out", img);
+
+    } catch (int e) {
+      // TODO: Exception handling
     }
 
-    imshow("out", img);
   }
 }
 
@@ -798,7 +805,6 @@ void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids,
                                         markers[i][1].x, markers[i][1].y,
                                         markers[i][2].x, markers[i][2].y,
                                         markers[i][3].x, markers[i][3].y);
-      //fillConvexPoly(img, markers[i], Scalar(0, 127, 255));
       fillConvexPoly(img, vertices, Scalar(0, 127, 255));
     }
   }
@@ -1085,19 +1091,19 @@ int main(int argc, char *argv[]) {
 
 						ss.str("");
 						ss.clear();
-						ss << std::setprecision(3) << batteryLevel;
+						ss  << std::fixed<< std::setprecision(3) << batteryLevel;
             const String powerDataStr = "battery: " + ss.str();
 						ss.str("");
 						ss.clear();
-						ss << std::setprecision(3) << static_cast<double>(message[id]["x"]);
+						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
             const String xStr = "x:       " + ss.str();
 						ss.str("");
 						ss.clear();
-						ss << std::setprecision(3) << static_cast<double>(message[id]["y"]);
+						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
             const String yStr = "y:       " + ss.str();
 						ss.str("");
 						ss.clear();
-						ss << std::setprecision(3) << static_cast<double>(message[id]["theta"]);
+						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
             const String thetaStr = "theta:   " + ss.str();
             vector<double> rip;
             float u, v;
