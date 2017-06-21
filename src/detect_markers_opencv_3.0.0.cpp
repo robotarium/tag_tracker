@@ -935,7 +935,7 @@ int main(int argc, char *argv[]) {
 	m.subscribe("overhead_tracker/config", stdf_configCallback);
 
   namedWindow("out", 1);
-  setMouseCallback("out", onMouse, 0);
+  //setMouseCallback("out", onMouse, 0);
 
   Mat H;
   if (!find_homography_to_reference_markers_image_plane(
