@@ -937,8 +937,6 @@ int main(int argc, char *argv[]) {
   namedWindow("out", 1);
   //setMouseCallback("out", onMouse, 0);
 
-  std::cout << "before everything" << std::endl;
-
   Mat H;
   if (!find_homography_to_reference_markers_image_plane(
     inputVideo,
@@ -949,8 +947,6 @@ int main(int argc, char *argv[]) {
     H
   ))
     return 0;
-
-  std::cout << "before everything" << std::endl;
 
   /* --------------------------------------------
    *                Main event loop
@@ -1013,16 +1009,11 @@ int main(int argc, char *argv[]) {
       if(ids.size() > 0) {
 
         if(estimatePose) {
-
-          std::cout << "before json" << std::endl;
-
           /* Create MQTT message */
           json message = {};
 
           /* Populate msg with data */
           for(unsigned int i = 0; i < ids.size(); i++) {
-
-            std::cout << "1" << std::endl;
 
             std::string id = std::to_string(ids[i]);
 
@@ -1044,18 +1035,11 @@ int main(int argc, char *argv[]) {
             /* Publish metric or image coordinates based on input flag -m */
             if(useMetric) {
 
-              std::cout << "2" << std::endl;
-
               if(find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) != REFERENCE_MARKER_IDS.end()) {
                 continue;
               }
 
-              std::cout << id << std::endl;
-              std::cout << "getting robot pose" << std::endl;
-
               Point3f pose = get_robot_pose(corners[i], H);
-
-              std::cout << pose.x << " " << pose.y << " " << pose.z << " " << std::endl;
 
               /* Add pose to msg */
               message[id]["x"] = pose.x;
