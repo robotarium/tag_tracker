@@ -935,7 +935,7 @@ int main(int argc, char *argv[]) {
 	m.subscribe("overhead_tracker/config", stdf_configCallback);
 
   namedWindow("out", 1);
-  //setMouseCallback("out", onMouse, 0);
+  setMouseCallback("out", onMouse, 0);
 
   Mat H;
   if (!find_homography_to_reference_markers_image_plane(
@@ -1097,45 +1097,45 @@ int main(int argc, char *argv[]) {
               message[id]["charging"] = -1;
             }
 
-          //   double batteryLevel = -1;
-          //   if (powerData[id] != NULL)
-          //       batteryLevel = static_cast<double>(powerData[id]);
-          //
-					// 	ss.str("");
-					// 	ss.clear();
-					// 	ss  << std::fixed<< std::setprecision(3) << batteryLevel;
-          //   const String powerDataStr = "battery: " + ss.str();
-					// 	ss.str("");
-					// 	ss.clear();
-					// 	ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
-          //   const String xStr = "x:       " + ss.str();
-					// 	ss.str("");
-					// 	ss.clear();
-					// 	ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
-          //   const String yStr = "y:       " + ss.str();
-					// 	ss.str("");
-					// 	ss.clear();
-					// 	ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
-          //   const String thetaStr = "theta:   " + ss.str();
-          //   vector<double> rip;
-          //   float u, v;
-          //   u = 0.25*(corners[i][0].x+corners[i][1].x+corners[i][2].x+corners[i][3].x);
-          //   v = 0.25*(corners[i][0].y+corners[i][1].y+corners[i][2].y+corners[i][3].y);
-          //   rip.push_back(u);
-          //   rip.push_back(v);
-          //   robotImagePosition[id] = rip;
-          //
-          //   if (clickedOnGritsbot[id]) {
-          //       putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-          //       putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-          //       putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-          //       putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-          //   } else if (closeToGritsbot[id]) {
-          //       putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-          //       putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-          //       putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-          //       putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-					// 	}
+            double batteryLevel = -1;
+            if (powerData[id] != NULL)
+                batteryLevel = static_cast<double>(powerData[id]);
+
+						ss.str("");
+						ss.clear();
+						ss  << std::fixed<< std::setprecision(3) << batteryLevel;
+            const String powerDataStr = "battery: " + ss.str();
+						ss.str("");
+						ss.clear();
+						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
+            const String xStr = "x:       " + ss.str();
+						ss.str("");
+						ss.clear();
+						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
+            const String yStr = "y:       " + ss.str();
+						ss.str("");
+						ss.clear();
+						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
+            const String thetaStr = "theta:   " + ss.str();
+            vector<double> rip;
+            float u, v;
+            u = 0.25*(corners[i][0].x+corners[i][1].x+corners[i][2].x+corners[i][3].x);
+            v = 0.25*(corners[i][0].y+corners[i][1].y+corners[i][2].y+corners[i][3].y);
+            rip.push_back(u);
+            rip.push_back(v);
+            robotImagePosition[id] = rip;
+
+            if (clickedOnGritsbot[id]) {
+                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+            } else if (closeToGritsbot[id]) {
+                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+						}
           }
 
           /* Send MQTT message as JSON dump */
