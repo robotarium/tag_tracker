@@ -110,37 +110,16 @@ bool find_homography_to_reference_markers_image_plane(
   const vector< int > REFERENCE_MARKER_IDS,
   const vector< Point2f > reference_markers_image_plane_WORLD_PLANE,
   Mat& H);
-cv::Mat point2f_to_homogeneous_mat_point(
-  cv::Point2f in
-);
-cv::Point2f mat_point_to_homogeneous_point2f(
-  cv::Mat in
-);
-Point2f find_marker_center(
-  vector< Point2f > corners
-);
-Point2f map_marker_from_image_to_world(
-  vector< Point2f > marker,
-  Mat H
-);
-Point2f map_point_from_image_to_world(
-  Point2f marker,
-  Mat H
-);
-float get_marker_orientation(
-  vector< Point2f > marker,
-  Mat H
-);
-Point3f get_robot_pose(
-  vector< Point2f > marker,
-  Mat H
-);
-void draw_xy_axes(
-  Mat& img,
-  vector< vector< Point2f > >markers,
-  vector<int> ids,
-  const vector< int > REFERENCE_MARKER_IDS
-);
+cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in);
+cv::Point2f mat_point_to_homogeneous_point2f(cv::Mat in);
+cv::Mat2f point2f_to_mat2f(cv::Point2f in);
+cv::Point2f mat2f_to_point2f(cv::Mat2f in);
+Point2f find_marker_center(vector< Point2f > corners);
+Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
+Point2f map_point_from_image_to_world(Point2f marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
+float get_marker_orientation(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
+Point3f get_robot_pose(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
+void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > REFERENCE_MARKER_IDS);
 // -----------------------------------------------------------------------------
 
 /* Global variables */
@@ -157,7 +136,7 @@ bool  estimatePose;
 float markerLength;
 bool  useMetric;
 int   camId;
-Mat   camMatrix, distCoeffs;
+Mat   camMatrix, distCoeffs, projMatrix;
 
 /* OpenCV video input and output devices */
 VideoCapture  inputVideo;
@@ -564,12 +543,13 @@ void printDetectionRate() {
 /* --------------------------------------------------
  *		Camera/tracker configuration functions
  * -------------------------------------------------- */
-static bool readCameraParameters(string filename, Mat &camMatrix, Mat &distCoeffs) {
+static bool readCameraParameters(string filename, Mat &camMatrix, Mat &distCoeffs, Mat &projMatrix) {
     FileStorage fs(filename, FileStorage::READ);
     if(!fs.isOpened())
         return false;
     fs["camera_matrix"] >> camMatrix;
     fs["distortion_coefficients"] >> distCoeffs;
+    fs["projection_matrix"] >> projMatrix;
     return true;
 }
 
@@ -671,6 +651,8 @@ bool find_homography_to_reference_markers_image_plane(
 
   Mat img;
   vector< vector< Point2f > > corners, rejected, reference_markers_image_plane;
+  Mat2f reference_markers_image_plane_toundistort = Mat2f::zeros(REFERENCE_MARKERS_WORLD_PLANE.size(), 1),
+        reference_markers_image_plane_undistorted = Mat2f::zeros(REFERENCE_MARKERS_WORLD_PLANE.size(), 1);
   std::vector< int > ids;
 
   while(true){
@@ -697,10 +679,24 @@ bool find_homography_to_reference_markers_image_plane(
           //cout << "found them" << endl;
           vector< Point2f > image_points, world_points;
           for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+            reference_markers_image_plane_toundistort[i][0][0] = 0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x);
+            reference_markers_image_plane_toundistort[i][0][1] = 0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y);
+          }
+
+          undistortPoints(
+            reference_markers_image_plane_toundistort,
+            reference_markers_image_plane_undistorted,
+            camMatrix,
+            distCoeffs,
+            Mat::eye(Size(3,3), CV_32F),
+            projMatrix
+          );
+
+          for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
             image_points.push_back(
               Point2f(
-                0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x),
-                0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y)
+                reference_markers_image_plane_undistorted[i][0][0],
+                reference_markers_image_plane_undistorted[i][0][1]
               )
             );
             world_points.push_back(REFERENCE_MARKERS_WORLD_PLANE[i]);
@@ -748,6 +744,21 @@ cv::Point2f mat_point_to_homogeneous_point2f(cv::Mat in)
     return out;
 }
 
+cv::Mat2f point2f_to_mat2f(cv::Point2f in)
+{
+    cv::Mat2f out(1, 1, CV_32F);
+    out[0][0][0] = in.x;
+    out[0][0][1] = in.y;
+    return out;
+}
+
+cv::Point2f mat2f_to_point2f(cv::Mat2f in)
+{
+    cv::Point2f out;
+    out.x = in[0][0][0];
+    out.y = in[0][0][1];
+    return out;
+}
 
 Point2f find_marker_center(vector< Point2f > corners) {
   return Point2f(
@@ -756,44 +767,52 @@ Point2f find_marker_center(vector< Point2f > corners) {
   );
 }
 
-Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H) {
+Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
   Mat homog_world_point, homog_image_point;
   Point2f marker_center;
-
-  // TODO: undistort before homography
+  Mat2f p_toundistort, p_undistorted;
 
   marker_center = find_marker_center(marker);
 
-  homog_image_point = point2f_to_homogeneous_mat_point(marker_center);
-
-  homog_world_point = H*homog_image_point;
-
-  return mat_point_to_homogeneous_point2f(homog_world_point);
+  return map_point_from_image_to_world(marker_center, H, camMatrix, distCoeffs, projMatrix);
 }
 
-Point2f map_point_from_image_to_world(Point2f marker, Mat H) {
+Point2f map_point_from_image_to_world(Point2f point, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
   Mat homog_world_point, homog_image_point;
+  Mat2f p_toundistort = Mat2f::zeros(1, 1),
+        p_undistorted = Mat2f::zeros(1, 1);
 
-  // TODO: undistort before homography
+  p_toundistort = point2f_to_mat2f(point);
+  
+  undistortPoints(
+    p_toundistort,
+    p_undistorted,
+    camMatrix,
+    distCoeffs,
+    Mat::eye(Size(3,3), CV_32F),
+    projMatrix
+  );
 
-  homog_image_point = point2f_to_homogeneous_mat_point(marker);
+  point = mat2f_to_point2f(p_undistorted);
+
+  homog_image_point = point2f_to_homogeneous_mat_point(point);
 
   homog_world_point = H*homog_image_point;
 
   return mat_point_to_homogeneous_point2f(homog_world_point);
 }
 
-float get_marker_orientation(vector< Point2f > marker, Mat H){
+float get_marker_orientation(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix){
   vector< Point2f > center_world;
   for (int i = 0; i < 4; i++)
-    center_world.push_back(map_point_from_image_to_world(marker[i], H));
+    center_world.push_back(map_point_from_image_to_world(marker[i], H, camMatrix, distCoeffs, projMatrix));
   Point2f forward_vector = (center_world[1]+center_world[2]-center_world[0]-center_world[3])/2;
   return atan2(forward_vector.y, forward_vector.x);
 }
 
-Point3f get_robot_pose(vector< Point2f > marker, Mat H) {
-  Point2f position = map_marker_from_image_to_world(marker, H);
-  float orientation = get_marker_orientation(marker, H);
+Point3f get_robot_pose(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
+  Point2f position = map_marker_from_image_to_world(marker, H, camMatrix, distCoeffs, projMatrix);
+  float orientation = get_marker_orientation(marker, H, camMatrix, distCoeffs, projMatrix);
   return Point3f(position.x, position.y, orientation);
 }
 
@@ -851,19 +870,18 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
+  // const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
+  const vector< int > REFERENCE_MARKER_IDS = {10, 18, 19, 20};
   const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
     Point2f(0.652, -0.3825),
     Point2f(0.657, 0.2625),
     Point2f(-0.650, 0.2015),
     Point2f(-0.647, -0.3875)};
-  const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
   // const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
   //   Point2f(0.205, -0.135),
   //   Point2f(0.205, 0.135),
   //   Point2f(-0.205, 0.135),
   //   Point2f(-0.205, -0.135)};
-  // const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
-  // vector< Point2f > REFERENCE_MARKERS_IMAGE_PLANE;
 
 	/* Add corner refinement in markers */
 	//detectorParams->cornerRefinementMethod = 2;
@@ -873,7 +891,7 @@ int main(int argc, char *argv[]) {
 		aruco::getPredefinedDictionary(aruco::PREDEFINED_DICTIONARY_NAME(dictionaryId));
 
 	if(estimatePose) {
-		if(!readCameraParameters(parser.get<string>("c"), camMatrix, distCoeffs)) {
+		if(!readCameraParameters(parser.get<string>("c"), camMatrix, distCoeffs, projMatrix)) {
 			cerr << "Invalid camera file" << endl;
 			return 0;
 		}
@@ -1039,7 +1057,7 @@ int main(int argc, char *argv[]) {
                 continue;
               }
 
-              Point3f pose = get_robot_pose(corners[i], H);
+              Point3f pose = get_robot_pose(corners[i], H, camMatrix, distCoeffs, projMatrix);
 
               /* Add pose to msg */
               message[id]["x"] = pose.x;
