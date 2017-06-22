@@ -852,10 +852,10 @@ int main(int argc, char *argv[]) {
 	}
 
   const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
-    Point2f(0.652, -0.3825),
-    Point2f(0.657, 0.2625),
-    Point2f(-0.650, 0.2015),
-    Point2f(-0.647, -0.3875)};
+    Point2f(0.205, -0.135),
+    Point2f(0.205, 0.135),
+    Point2f(-0.205, 0.135),
+    Point2f(-0.205, -0.135)};
   const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
   // const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
   //   Point2f(0,1),
