@@ -706,12 +706,27 @@ bool find_homography_to_reference_markers_image_plane(
           H = findHomography(image_points, world_points);
 
           //cout << "homography:\n" << H << endl;
-
+		  
+     	  putText(img, "Reference markers", Point2f(img.cols*0.1, img.rows*0.4), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+	      putText(img, "found", Point2f(img.cols*0.35, img.rows*0.6), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+	      imshow("out", img);
+		  waitKey(333);
+		  
           return true;
         }
 
         cv::aruco::drawDetectedMarkers(img, corners, ids);
       }
+
+	  putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+	  putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+	  for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+          ss.str("");
+	      ss.clear();
+		  ss << REFERENCE_MARKER_IDS[i];
+		  const String idStr = ss.str();
+		  putText(img, idStr, Point2f(img.cols*(0.05+0.8*int(i<=1)), img.rows*(0.15+0.8*int(i<1||i>2))), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+	  }
 
       imshow("out", img);
 
@@ -870,8 +885,7 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-  // const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
-  const vector< int > REFERENCE_MARKER_IDS = {10, 18, 19, 20};
+  const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
   const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
     Point2f(0.652, -0.3825),
     Point2f(0.657, 0.2625),
@@ -1116,22 +1130,21 @@ int main(int argc, char *argv[]) {
             }
 
             double batteryLevel = (double) message[id]["powerData"];
-
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << batteryLevel;
+			ss.str("");
+			ss.clear();
+			ss  << std::fixed<< std::setprecision(3) << batteryLevel;
             const String powerDataStr = "battery: " + ss.str();
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
+			ss.str("");
+			ss.clear();
+			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
             const String xStr = "x:       " + ss.str();
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
+			ss.str("");
+			ss.clear();
+			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
             const String yStr = "y:       " + ss.str();
-						ss.str("");
-						ss.clear();
-						ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
+			ss.str("");
+			ss.clear();
+			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
             const String thetaStr = "theta:   " + ss.str();
             vector<double> rip;
             float u, v;
