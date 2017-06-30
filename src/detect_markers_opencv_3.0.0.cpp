@@ -602,7 +602,8 @@ namespace {
 			    "{od       |       | Output file for video }"
 			    "{mqtt     |       |  MQTT setup information}"
 			    "{h        | localhost | MQTT broker }"
-			    "{p        | 1883      | MQTT port }";
+			    "{p        | 1883      | MQTT port }"
+			    "{s        |  | frame scale: if specified, frame sizes are multiplied by s }";
 }
 
 cv::Mat vec3dToMat(cv::Vec3d in)
@@ -707,8 +708,8 @@ bool find_homography_to_reference_markers_image_plane(
 
           //cout << "homography:\n" << H << endl;
 		  
-     	  putText(img, "Reference markers", Point2f(img.cols*0.1, img.rows*0.4), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
-	      putText(img, "found", Point2f(img.cols*0.35, img.rows*0.6), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+     	  putText(img, "Reference markers", Point2f(img.cols*0.1, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+	      putText(img, "found", Point2f(img.cols*0.35, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 	      imshow("out", img);
 		  waitKey(333);
 		  
@@ -718,14 +719,14 @@ bool find_homography_to_reference_markers_image_plane(
         cv::aruco::drawDetectedMarkers(img, corners, ids);
       }
 
-	  putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
-	  putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+	  putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+	  putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 	  for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
           ss.str("");
 	      ss.clear();
 		  ss << REFERENCE_MARKER_IDS[i];
 		  const String idStr = ss.str();
-		  putText(img, idStr, Point2f(img.cols*(0.05+0.8*int(i<=1)), img.rows*(0.15+0.8*int(i<1||i>2))), FONT_HERSHEY_COMPLEX, 3, Scalar(0, 127, 255), 2);
+		  putText(img, idStr, Point2f(img.cols*(0.05+0.8*int(i<=1)), img.rows*(0.15+0.8*int(i<1||i>2))), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 	  }
 
       imshow("out", img);
@@ -922,7 +923,12 @@ int main(int argc, char *argv[]) {
 	/* Open camera input stream */
 	inputVideo.open(camId);
 
-  /* Set resolution to 1280 x 720 */
+    /* Set resolution */
+	if (parser.has("s")) {
+		frameWidth = int( float(frameWidth) * parser.get<float>("s") );
+		frameHeight = int( float(frameHeight) * parser.get<float>("s") );
+	}
+	frameSize = cv::Size(frameWidth, frameHeight);
 	inputVideo.set(CV_CAP_PROP_FRAME_WIDTH, frameWidth);
 	inputVideo.set(CV_CAP_PROP_FRAME_HEIGHT, frameHeight);
 
