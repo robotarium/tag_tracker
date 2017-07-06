@@ -107,7 +107,7 @@ bool find_homography_to_reference_markers_image_plane(
   VideoCapture& cam,
   Ptr<aruco::Dictionary> dictionary,
   Ptr<aruco::DetectorParameters> detectorParams,
-  const vector< int > REFERENCE_MARKER_IDS,
+  const vector< int > reference_marker_ids,
   const vector< Point2f > reference_markers_image_plane_WORLD_PLANE,
   Mat& H);
 cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in);
@@ -119,7 +119,8 @@ Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H, Mat camM
 Point2f map_point_from_image_to_world(Point2f marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
 float get_marker_orientation(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
 Point3f get_robot_pose(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
-void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > REFERENCE_MARKER_IDS);
+void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > reference_marker_ids);
+bool readReferenceMarkersSpecs(string reference_marker_setup_file, vector<int>& referenceMarkersIDs, vector<Point2f>& referenceMarkersPositions);
 // -----------------------------------------------------------------------------
 
 /* Global variables */
@@ -603,7 +604,8 @@ namespace {
 			    "{mqtt     |       |  MQTT setup information}"
 			    "{h        | localhost | MQTT broker }"
 			    "{p        | 1883      | MQTT port }"
-			    "{s        |  | frame scale: if specified, frame sizes are multiplied by s }";
+			    "{s        |  | frame scale: if specified, frame sizes are multiplied by s }"
+			    "{rm        |  | reference markers: reference markers yml specification file }";
 }
 
 cv::Mat vec3dToMat(cv::Vec3d in)
@@ -646,14 +648,14 @@ bool find_homography_to_reference_markers_image_plane(
   VideoCapture& cam,
   Ptr<aruco::Dictionary> dictionary,
   Ptr<aruco::DetectorParameters> detectorParams,
-  const vector< int > REFERENCE_MARKER_IDS,
-  const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE,
+  const vector< int > reference_marker_ids,
+  const vector< Point2f > reference_markers_world_plane,
   Mat& H) {
 
   Mat img;
   vector< vector< Point2f > > corners, rejected, reference_markers_image_plane;
-  Mat2f reference_markers_image_plane_toundistort = Mat2f::zeros(REFERENCE_MARKERS_WORLD_PLANE.size(), 1),
-        reference_markers_image_plane_undistorted = Mat2f::zeros(REFERENCE_MARKERS_WORLD_PLANE.size(), 1);
+  Mat2f reference_markers_image_plane_toundistort = Mat2f::zeros(reference_markers_world_plane.size(), 1),
+        reference_markers_image_plane_undistorted = Mat2f::zeros(reference_markers_world_plane.size(), 1);
   std::vector< int > ids;
 
   while(true){
@@ -668,18 +670,18 @@ bool find_homography_to_reference_markers_image_plane(
 
         reference_markers_image_plane.clear();
 
-        for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
-          vector< int >::iterator iter = find(ids.begin(), ids.end(), REFERENCE_MARKER_IDS[i]);
+        for (int i = 0; i < reference_marker_ids.size(); i++){
+          vector< int >::iterator iter = find(ids.begin(), ids.end(), reference_marker_ids[i]);
           if (iter != ids.end()){
             int idx = distance(ids.begin(), iter);
             reference_markers_image_plane.push_back(corners[idx]);
           }
         }
 
-        if (reference_markers_image_plane.size() == REFERENCE_MARKER_IDS.size()){
+        if (reference_markers_image_plane.size() == reference_marker_ids.size()){
           //cout << "found them" << endl;
           vector< Point2f > image_points, world_points;
-          for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+          for (int i = 0; i < reference_marker_ids.size(); i++){
             reference_markers_image_plane_toundistort[i][0][0] = 0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x);
             reference_markers_image_plane_toundistort[i][0][1] = 0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y);
           }
@@ -693,14 +695,14 @@ bool find_homography_to_reference_markers_image_plane(
             projMatrix
           );
 
-          for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+          for (int i = 0; i < reference_marker_ids.size(); i++){
             image_points.push_back(
               Point2f(
                 reference_markers_image_plane_undistorted[i][0][0],
                 reference_markers_image_plane_undistorted[i][0][1]
               )
             );
-            world_points.push_back(REFERENCE_MARKERS_WORLD_PLANE[i]);
+            world_points.push_back(reference_markers_world_plane[i]);
           }
           //cout << "Computing homography between the image point:\n" << image_points << "\nand the world points:\n" << world_points << endl << "...";
 
@@ -721,10 +723,10 @@ bool find_homography_to_reference_markers_image_plane(
 
 	  putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 	  putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
-	  for (int i = 0; i < REFERENCE_MARKER_IDS.size(); i++){
+	  for (int i = 0; i < reference_marker_ids.size(); i++){
           ss.str("");
 	      ss.clear();
-		  ss << REFERENCE_MARKER_IDS[i];
+		  ss << reference_marker_ids[i];
 		  const String idStr = ss.str();
 		  putText(img, idStr, Point2f(img.cols*(0.05+0.8*int(i<=1)), img.rows*(0.15+0.8*int(i<1||i>2))), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 	  }
@@ -832,10 +834,10 @@ Point3f get_robot_pose(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distC
   return Point3f(position.x, position.y, orientation);
 }
 
-void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > REFERENCE_MARKER_IDS) {
+void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > reference_marker_ids) {
   Point2f pt1, pt2;
   for (int i = 0; i < markers.size(); i++) {
-    if (find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) == REFERENCE_MARKER_IDS.end()) {
+    if (find(reference_marker_ids.begin(), reference_marker_ids.end(), ids[i]) == reference_marker_ids.end()) {
       pt1 = find_marker_center(markers[i]);
       pt2 = (markers[i][1] + markers[i][2]) / 2;
       pt2 = pt1 + 2*(pt2-pt1);
@@ -848,6 +850,20 @@ void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids,
       fillConvexPoly(img, vertices, Scalar(0, 127, 255));
     }
   }
+}
+
+bool readReferenceMarkersSpecs(string reference_marker_setup_file, vector<int>& referenceMarkersIDs, vector<Point2f>& referenceMarkersPositions) {
+    FileStorage fs(reference_marker_setup_file, FileStorage::READ);
+    if(!fs.isOpened())
+        return false;
+
+	FileNode markers = fs["markers"];
+	for (FileNodeIterator it = markers.begin(); it != markers.end(); it++ ) {
+		referenceMarkersIDs.push_back((int)(*it)["id"]);
+		referenceMarkersPositions.push_back(Point2f((float)(*it)["x"],(float)(*it)["y"]));
+	}
+
+    return true;
 }
 
 /* --------------------------------------
@@ -885,14 +901,19 @@ int main(int argc, char *argv[]) {
 			return 0;
 		}
 	}
-
-  const vector< int > REFERENCE_MARKER_IDS = {22, 23, 24, 25};
-  const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
-    Point2f(0.652, -0.3825),
-    Point2f(0.657, 0.2625),
-    Point2f(-0.650, 0.2015),
-    Point2f(-0.647, -0.3875)};
-  // const vector< Point2f > REFERENCE_MARKERS_WORLD_PLANE = {
+	
+  vector< int > reference_marker_ids; // = {22, 23, 24, 25};
+  vector< Point2f > reference_markers_world_plane;
+  if (!readReferenceMarkersSpecs(parser.get<string>("rm"), reference_marker_ids, reference_markers_world_plane)) {
+      cerr << "Invalid reference markers file" << endl;
+      return 0;
+  }
+  // const vector< Point2f > reference_markers_world_plane = {
+  //  Point2f(0.652, -0.3825),
+  //  Point2f(0.657, 0.2625),
+  //  Point2f(-0.650, 0.2015),
+  //  Point2f(-0.647, -0.3875)};
+  // const vector< Point2f > reference_markers_world_plane = {
   //   Point2f(0.205, -0.135),
   //   Point2f(0.205, 0.135),
   //   Point2f(-0.205, 0.135),
@@ -980,8 +1001,8 @@ int main(int argc, char *argv[]) {
     inputVideo,
     dictionary,
     detectorParams,
-    REFERENCE_MARKER_IDS,
-    REFERENCE_MARKERS_WORLD_PLANE,
+    reference_marker_ids,
+    reference_markers_world_plane,
     H
   ))
     return 0;
@@ -1012,7 +1033,7 @@ int main(int argc, char *argv[]) {
       image.copyTo(imageCopy);
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        draw_xy_axes(imageCopy, corners, ids, REFERENCE_MARKER_IDS);
+        draw_xy_axes(imageCopy, corners, ids, reference_marker_ids);
         // if(estimatePose) {
         //   for(unsigned int i = 0; i < ids.size(); i++) {
         //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
@@ -1073,7 +1094,7 @@ int main(int argc, char *argv[]) {
             /* Publish metric or image coordinates based on input flag -m */
             if(useMetric) {
 
-              if(find(REFERENCE_MARKER_IDS.begin(), REFERENCE_MARKER_IDS.end(), ids[i]) != REFERENCE_MARKER_IDS.end()) {
+              if(find(reference_marker_ids.begin(), reference_marker_ids.end(), ids[i]) != reference_marker_ids.end()) {
                 continue;
               }
 
