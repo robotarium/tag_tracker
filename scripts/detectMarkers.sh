@@ -27,4 +27,4 @@
 # =================================
 #../build/detectMarkers -d=0 -ci=0 -c=../data/cameraCalibration.yml -l=0.036 -m --vo
 #../build/detectMarkers -d=0 -ci=0 -c=../data/cameraCalibration.yml -l=0.036 -m
-../build/detectMarkers -m -h=192.168.1.2 -p=1884 -d=0 -ci=0 -c=../data/camera.yml -l=0.026 -dp=../detector_params.yml -a=/home/robotarium/Git/RobotariumRepositories/robotarium/serverBackend/mqttExtravaganza/tracker_alias.json -rm=../data/reference_markers_setup.yml
+../build/detectMarkers -m -h=192.168.1.2 -p=1884 -d=0 -ci=0 -c=../data/camera.yml -l=0.026 -dp=../detector_params.yml -rm=../data/reference_markers_setup.yml

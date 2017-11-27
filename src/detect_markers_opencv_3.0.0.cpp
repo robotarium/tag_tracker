@@ -60,23 +60,12 @@ the use of this software, even if advised of the possibility of such damage.
 #include <iostream>
 #include <fstream>
 #include <mqttclient.hpp>
+#include <future>
 
 /* Chrono typedefs */
 typedef std::chrono::high_resolution_clock Time;
 typedef std::chrono::milliseconds ms;
 typedef std::chrono::duration<float> fsec;
-
-/* Camera calibration constants */
-double OFFSET_X_PX = -31;
-double OFFSET_Y_PX = -2;
-
-//double SCALE_X = 1.18 / 979.0;
-//double SCALE_Y = 0.78 / 647.0;
-//double ROTATION = (0.75 * M_PI/180.0);
-double SCALE_X = 1.2/1280.0;
-double SCALE_Y = 0.80/720;
-double X_TRANSFORM[] = {-1.2757, 0.0170, -0.0376};
-double Y_TRANSFORM[] = {-0.0227, -1.0748, -0.0073};
 
 /* Convenience declaration */
 using json = nlohmann::json;
@@ -85,23 +74,20 @@ using json = nlohmann::json;
 using namespace std;
 using namespace cv;
 
-//Origin marker
-Vec3d origin_rvecs(0, 0, 0), origin_tvecs(0, 0, 0);
-// origin offsett (pose of the 'reference marker reference system' in the 'origin reference system')
-cv::Mat R0vec = (cv::Mat_<double>(3,1) << 0, 0, 0),
-        t0 = (cv::Mat_<double>(3,1) << 0.65, -0.33, 0);
-float z_base = 0.0;
-int origin_marker_id = 22;
-bool found_origin_marker = false;
-cv::Mat tinv_cv, Rinvvec_cv; // inverse transform to origin marker
+struct MappingData {
+  cv::Mat homography;
+  cv::Mat inv_homography;
+  cv::Mat camera_matrix;
+  cv::Mat dist_coeffs;
+  cv::Mat proj_matrix;
+};
 
 /* Forward declarations */
 const std::string currentDateTime();
-bool  openOutputVideo(std::string filename, int codec, int fps);
-bool  createDirectory(std::string folderName);
 bool  getJSONString(auto data, std::string fieldName, std::string* output);
 bool  getJSONInt(auto data, std::string fieldName, int* output);
 static void onMouse(int event, int x, int y, int, void*);
+
 // homography stuffs -----------------------------------------------------------
 bool find_homography_to_reference_markers_image_plane(
   VideoCapture& cam,
@@ -110,11 +96,15 @@ bool find_homography_to_reference_markers_image_plane(
   const vector< int > reference_marker_ids,
   const vector< Point2f > reference_markers_image_plane_WORLD_PLANE,
   Mat& H);
+
+// Paul homography stuffs
+Point2f map_point_from_world_to_image(Point2f point, MappingData& mapping_data);
+
 cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in);
 cv::Point2f mat_point_to_homogeneous_point2f(cv::Mat in);
 cv::Mat2f point2f_to_mat2f(cv::Point2f in);
 cv::Point2f mat2f_to_point2f(cv::Mat2f in);
-Point2f find_marker_center(vector< Point2f > corners);
+Point2f find_marker_center(vector<Point2f> corners);
 Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
 Point2f map_point_from_image_to_world(Point2f marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
 float get_marker_orientation(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
@@ -126,8 +116,8 @@ bool readReferenceMarkersSpecs(string reference_marker_setup_file, vector<int>& 
 /* Global variables */
 json powerData;
 json status_data;
-std::map< std::string, vector<double> > robotImagePosition;
-std::map< std::string, bool > closeToGritsbot, clickedOnGritsbot;
+std::map<std::string, vector<double> > robotImagePosition;
+std::map<std::string, bool > closeToGritsbot, clickedOnGritsbot;
 std::ostringstream ss;
 
 /* Tracker parameters */
@@ -135,32 +125,11 @@ int   dictionaryId;
 bool  showRejected;
 bool  estimatePose;
 float markerLength;
-bool  useMetric;
 int   camId;
 Mat   camMatrix, distCoeffs, projMatrix;
 
 /* OpenCV video input and output devices */
 VideoCapture  inputVideo;
-VideoWriter   outputVideo;
-
-/* Video recording flags */
-bool        recordVideo     = false;
-bool        recordFrames    = false;
-int         recordVideoFPS  = 30;
-int         recordImageFPS  = 1;
-uint16_t    frameNumber     = 0;
-std::string imageFolderName = "./frames";
-bool        outputVideoWithMarkers = false;
-
-/* Codec settings for MPEG encoded video files */
-//string  codec       = "MPG";
-//int     videoCodec  = CV_FOURCC('M','P','E','G');
-
-/* Codec settings */
-//string codec = "MPG";
-string codec = "MP4";
-//int videoCodec = CV_FOURCC('M','P','E','G');
-int videoCodec = CV_FOURCC('X', '2', '6', '4');
 
 /* Time stamps */
 auto    lastVideoFrameWrite = Time::now();
@@ -174,10 +143,32 @@ int       frameWidth  = 1280;
 int       frameHeight = 720;
 cv::Size  frameSize   = cv::Size(frameWidth, frameHeight);
 
-/* MQTT parameters */
-double      publishRate   = 30;
-bool        configUpdate  = false;
-std::string statusMsg     = "";
+/**
+ */
+Ptr<aruco::Dictionary> generate_single_dictionary(int marker, int marker_size,
+                                           const Ptr<aruco::Dictionary> &baseDictionary) {
+
+    Ptr<aruco::Dictionary> out = makePtr<aruco::Dictionary>();
+    out->markerSize = marker_size;
+
+    // theoretical maximum intermarker distance
+    // See S. Garrido-Jurado, R. Muñoz-Salinas, F. J. Madrid-Cuevas, and M. J. Marín-Jiménez. 2014.
+    // "Automatic generation and detection of highly reliable fiducial markers under occlusion".
+    // Pattern Recogn. 47, 6 (June 2014), 2280-2292. DOI=10.1016/j.patcog.2014.01.005
+    int C = (int)std::floor(float(marker_size * marker_size) / 4.f);
+    int tau = 2 * (int)std::floor(float(C) * 4.f / 3.f);
+
+    // if baseDictionary is provided, calculate its intermarker distance
+    if(baseDictionary->bytesList.rows > 0) {
+        CV_Assert(baseDictionary->markerSize == marker_size);
+        out->bytesList = baseDictionary->bytesList.rowRange(marker, marker+1).clone();
+    }
+
+    // update the maximum number of correction bits for the generated dictionary
+    out->maxCorrectionBits = (tau - 1) / 2;
+
+    return out;
+}
 
 /* -------------------------------------
  *		MQTT Callback functions
@@ -233,150 +224,8 @@ void powerDataCallback(std::string topic, std::string message) {
   }
 }
 
-void configCallback(std::string topic, std::string message) {
-  /* Parameters in JSON message for video recording
-   * type       : video       [string]
-   * run        : start/stop  [string]
-   * frameRate  : 15, 30      [int]
-   * folderName :             [string]
-   * fileName   :             [string]
-   *
-   * Parameters in JSON message for image recording
-   * type       : image       [string]
-   * run        : start/stop  [string]
-   * frameRate  : N           [int]
-   * folderName :             [string]
-   *
-   */
-
-  /* Initialize status message and expected parameters */
-  std::string statusMsg = "";
-  std::string type = "";
-  std::string run = "";
-  std::string folderName = "";
-  std::string fileName = "";
-
-  std::cout << message << std::endl;
-
-  /* Parse message string into JSON dictionary */
-  try {
-	auto data = json::parse(message);
-
-    if(getJSONString(data, std::string("type"), &type)) {
-      /* Debug output */
-      std::cout << "Config Message: " << message << std::endl;
-      std::cout << "Tracker config type: " << type << std::endl;
-
-      if(type.compare("video") == 0) {
-        /* Video is requested to be recorded */
-        if(getJSONString(data, std::string("run"), &run)) {
-          if(run.compare("start") == 0) {
-            // 1. if run == start
-            // 1.a: create output folder
-            // 1.b: open output stream
-            // 1.c: set global recording parameters
-
-            std::cout << "Run Video: " << run << std::endl;
-
-            /* Start recording the video after reading parameters */
-            if(getJSONString(data, std::string("folderName"), &folderName) &&
-                getJSONString(data, std::string("fileName"), &fileName) &&
-                getJSONInt(data, std::string("frameRate"), &recordVideoFPS)) {
-
-              /* Debug output */
-              std::cout << "folderName: " << folderName << std::endl;
-              std::cout << "fileName: " << fileName << std::endl;
-              std::cout << "frameRate: " << recordVideoFPS << std::endl;
-
-              /* Create output folder */
-              if(createDirectory(folderName)) {
-                /* Open parameterized output stream */
-                if(!outputVideo.isOpened()) {
-                  openOutputVideo(folderName + "/" + fileName,
-                                    videoCodec, recordVideoFPS);
-                  std::cout << "Video file opened: " << folderName + "/" + fileName
-                            << std::endl;
-                /* Start recording video */
-                }
-                if(outputVideo.isOpened()) {
-                  recordVideo = true;
-                  std::cout << "Video file opened: " << folderName + "/" + fileName << std::endl;
-                } else {
-                  std::cout << "Video file opened: " << folderName + "/" + fileName << " failed to open!!!!" << std::endl;
-                }
-              } else {
-                std::cout << "Folder creation failed: " << folderName << std::endl;
-              }
-            }
-
-          } else {
-            // 2. if run == stop
-            // 2.a: stop output stream
-            // 2.b: set recording flags to false
-            /* Stop recording video */
-            recordVideo = false;
-            totalTime = 0.0;
-
-            std::cout << "Run Video level stop detected." << std::endl;
-
-            if(outputVideo.isOpened()) {
-              //std::cout << "Stopping video recording" << std::endl;
-              //outputVideo.release();
-              std::cout << "Stopped video recording" << std::endl;
-            }
-          }
-        }
-      } else if(type.compare("image") == 0) {
-        // 1. if run == start
-        // 1.a: create output folder
-        // 1.c: set global recording parameters
-        // 2. if run == stop
-        // 2.a: set recording flags to false
-
-        //* type       : image       [string]
-        //* run        : start/stop  [string]
-        //* frameRate  : N           [int]
-        //* folderName :             [string]
-
-        if(getJSONString(data, std::string("run"), &run)) {
-          /* Debug output */
-          std::cout << "Run Image: " << run << std::endl;
-
-          if(run.compare("start") == 0) {
-            /* Start recording images after reading parameters */
-            if(getJSONString(data, std::string("folderName"), &folderName) &&
-                getJSONInt(data, std::string("frameRate"), &recordImageFPS)) {
-
-              /* Debug output */
-              std::cout << "folderName: " << folderName << std::endl;
-              std::cout << "frameRate: " << recordImageFPS << std::endl;
-
-              if(createDirectory(folderName)) {
-                frameNumber   = 0;
-                recordFrames  = true;
-                imageFolderName = folderName;
-              }
-            } else {
-              recordFrames = false;
-            }
-          } else {
-            recordFrames = false;
-            std::cout << "Run Image stop detected: " << run << std::endl;
-          }
-        }
-      } else {
-        statusMsg = "Error: Type " + type + " is not a valid option.";
-      }
-    }
-  } catch (const std::exception& e) {
-	std::cout << "Exception caught" << std::endl;
-  }
-  configUpdate = true;
-}
-
 /* Cast function to standard function pointer */
 std::function<void(std::string, std::string)> stdf_powerDataCallback = &powerDataCallback;
-std::function<void(std::string, std::string)> stdf_configCallback = &configCallback;
 
 /* -------------------------------------
  *		  JSON Utility functions
@@ -406,107 +255,6 @@ bool getJSONInt(auto data, std::string fieldName, int* output) {
     return false;
   }
 }
-
-/* -------------------------------------
- *		Video and frame output functions
- * ------------------------------------- */
-void writeFrameToVideo(Mat frame) {
-  if( (Time::now() - lastVideoFrameWrite).count() > (1.0 / recordVideoFPS) ) {
-    /* Update time stamps of last frame */
-    lastVideoFrameWrite = Time::now();
-
-    /* Debug output */
-    //totalTime += (Time::now() - lastVideoFrameWrite).count();
-    //std::cout << totalTime << std::endl;
-
-    /* Add frame to output video */
-    if(outputVideo.isOpened()) {
-      outputVideo << frame;
-    }
-  }
-}
-
-bool writeFrameToFile(Mat frame, std::string filename) {
-  if( (Time::now() - lastImageFrameWrite).count() > (1.0 / recordImageFPS) ) {
-    /* Update time stamps of last frame */
-    lastImageFrameWrite = Time::now();
-
-    /* Write file */
-    imwrite(filename, frame);
-
-    /* Debug output */
-    //std::cout << "Printing to file: " << filename << std::endl;
-
-    return true;
-  } else {
-    return false;
-  }
-}
-
-bool openOutputVideo(std::string filename, int codec, int fps) {
-  /* Opening succeeds if the filename is .mpeg only */
-  /* Available codecs according to http://www.fourcc.org/codecs.php
-    * - X264
-    * - XVID
-    * - MPG4
-    * - MJPG
-    */
-  if(outputVideo.open(filename, videoCodec, fps, frameSize, true)) {
-    if(outputVideo.isOpened()) {
-      std::cout << "Recording video with filename " << filename << std::endl;
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
-}
-
-std::string getImageFilename(std::string folder, int frameNumber) {
-  std::string filenameInit = folder + "/00001.jpg";
-  char filenameArray[sizeof(char) * filenameInit.length()];
-  sprintf(filenameArray, "%s/%05d.jpg", folder.c_str(), frameNumber);
-
-  return std::string(filenameArray);
-}
-
-bool createDirectory(std::string folderName) {
-  /* Create directory in boost format */
-  boost::filesystem::path dir(folderName);
-
-  /* Check if directory already exists */
-  if (boost::filesystem::is_directory(dir) &&
-      boost::filesystem::exists(dir)) {
-    return true;
-  }
-
-  /* Create actual directory */
-  if (boost::filesystem::create_directory(dir)) {
-    if (boost::filesystem::is_directory(dir) &&
-          boost::filesystem::exists(dir)) {
-      /* Directory exists */
-      std:string dirStr = boost::filesystem::canonical(dir).string();
-      std::cout << "Boost folder created: " << dirStr << std::endl;
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
-}
-
-/* -------------------------------------
- *		Calibration utility functions
- * ------------------------------------- */
-// double rotate_x(double x, double y) {
-// 	return cos(ROTATION)*x - sin(ROTATION)*y;
-// }
-//
-// double rotate_y(double x, double y) {
-// 	return sin(ROTATION)*x + cos(ROTATION)*y;
-// }
 
 /* -------------------------------------
  *		Time utility functions
@@ -591,30 +339,15 @@ namespace {
 	        "DICT_4X4_1000=3, DICT_5X5_50=4, DICT_5X5_100=5, DICT_5X5_250=6, DICT_5X5_1000=7, "
 	        "DICT_6X6_50=8, DICT_6X6_100=9, DICT_6X6_250=10, DICT_6X6_1000=11, DICT_7X7_50=12,"
 	        "DICT_7X7_100=13, DICT_7X7_250=14, DICT_7X7_1000=15, DICT_ARUCO_ORIGINAL = 16}"
-	        "{v        |       | Input from video file, if ommited, input comes from camera }"
 	        "{ci       | 0     | Camera id if input doesnt come from video (-v) }"
 	        "{c        |       | Camera intrinsic parameters. Needed for camera pose }"
 	        "{l        | 0.1   | Marker side length (in meters). Needed for correct scale in camera pose }"
 	        "{dp       |       | File of marker detector parameters }"
 	        "{r        |       | show rejected candidates too }"
-	        "{vo       |       | Record video to output file }"
-	        "{rM       |       | Render detected markers into output video file }"
-	        "{m        |       | Use metric units in position updates of MQTT messages }"
-			    "{od       |       | Output file for video }"
-			    "{mqtt     |       |  MQTT setup information}"
 			    "{h        | localhost | MQTT broker }"
 			    "{p        | 1883      | MQTT port }"
 			    "{s        |  | frame scale: if specified, frame sizes are multiplied by s }"
 			    "{rm        |  | reference markers: reference markers yml specification file }";
-}
-
-cv::Mat vec3dToMat(cv::Vec3d in)
-{
-    cv::Mat out(3,1, CV_64FC1);
-    out.at<double>(0,0) = in[0];
-    out.at<double>(1,0) = in[1];
-    out.at<double>(2,0) = in[2];
-    return out;
 }
 
 static void onMouse(int event, int x, int y, int, void*) {
@@ -648,17 +381,17 @@ bool find_homography_to_reference_markers_image_plane(
   VideoCapture& cam,
   Ptr<aruco::Dictionary> dictionary,
   Ptr<aruco::DetectorParameters> detectorParams,
-  const vector< int > reference_marker_ids,
-  const vector< Point2f > reference_markers_world_plane,
+  const vector<int> reference_marker_ids,
+  const vector<Point2f> reference_markers_world_plane,
   Mat& H) {
 
   Mat img;
-  vector< vector< Point2f > > corners, rejected, reference_markers_image_plane;
+  vector<vector<Point2f>> corners, rejected, reference_markers_image_plane;
   Mat2f reference_markers_image_plane_toundistort = Mat2f::zeros(reference_markers_world_plane.size(), 1),
         reference_markers_image_plane_undistorted = Mat2f::zeros(reference_markers_world_plane.size(), 1);
   std::vector< int > ids;
 
-  while(true){
+  while(true) {
 
     try {
 
@@ -668,11 +401,12 @@ bool find_homography_to_reference_markers_image_plane(
 
       if (ids.size() > 0) {
 
+        // Clear the reference markeers in the image plane.
         reference_markers_image_plane.clear();
 
-        for (int i = 0; i < reference_marker_ids.size(); i++){
-          vector< int >::iterator iter = find(ids.begin(), ids.end(), reference_marker_ids[i]);
-          if (iter != ids.end()){
+        for (int i = 0; i < reference_marker_ids.size(); i++) {
+          vector<int>::iterator iter = find(ids.begin(), ids.end(), reference_marker_ids[i]);
+          if (iter != ids.end()) {
             int idx = distance(ids.begin(), iter);
             reference_markers_image_plane.push_back(corners[idx]);
           }
@@ -681,7 +415,7 @@ bool find_homography_to_reference_markers_image_plane(
         if (reference_markers_image_plane.size() == reference_marker_ids.size()){
           //cout << "found them" << endl;
           vector< Point2f > image_points, world_points;
-          for (int i = 0; i < reference_marker_ids.size(); i++){
+          for (int i = 0; i < reference_marker_ids.size(); i++) {
             reference_markers_image_plane_toundistort[i][0][0] = 0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x);
             reference_markers_image_plane_toundistort[i][0][1] = 0.25*(reference_markers_image_plane[i][0].y+reference_markers_image_plane[i][1].y+reference_markers_image_plane[i][2].y+reference_markers_image_plane[i][3].y);
           }
@@ -709,12 +443,12 @@ bool find_homography_to_reference_markers_image_plane(
           H = findHomography(image_points, world_points);
 
           //cout << "homography:\n" << H << endl;
-		  
+
      	  putText(img, "Reference markers", Point2f(img.cols*0.1, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 	      putText(img, "found", Point2f(img.cols*0.35, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 	      imshow("out", img);
 		  waitKey(333);
-		  
+
           return true;
         }
 
@@ -745,6 +479,7 @@ bool find_homography_to_reference_markers_image_plane(
   return false;
 }
 
+/* Takes a cv::Point2f and returns a cv::Mat with a one on the end */
 cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in)
 {
     cv::Mat out(3,1, CV_64FC1);
@@ -785,33 +520,48 @@ Point2f find_marker_center(vector< Point2f > corners) {
   );
 }
 
-Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
-  Mat homog_world_point, homog_image_point;
-  Point2f marker_center;
-  Mat2f p_toundistort, p_undistorted;
+Point2f map_point_from_world_to_image(Point2f point, MappingData& mapping_data) {
+  /*
+  Assume that the points have already been undistorted
+  */
 
+  Mat homog_world_point, homog_image_point;
+
+  homog_world_point = point2f_to_homogeneous_mat_point(point);
+  homog_image_point = mapping_data.inv_homography*homog_world_point;
+
+  // Takes a 3x1 cv::Mat to a point in pixels (handles the scaling)
+  return mat_point_to_homogeneous_point2f(homog_image_point);
+}
+
+//TODO: Change this function so that we don't have to find the center here.  That can be
+// easily done in the main loop.
+Point2f map_marker_from_image_to_world(vector<Point2f> marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
+
+  Point2f marker_center;
   marker_center = find_marker_center(marker);
 
   return map_point_from_image_to_world(marker_center, H, camMatrix, distCoeffs, projMatrix);
 }
 
 Point2f map_point_from_image_to_world(Point2f point, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
+
   Mat homog_world_point, homog_image_point;
-  Mat2f p_toundistort = Mat2f::zeros(1, 1),
-        p_undistorted = Mat2f::zeros(1, 1);
+  // Mat2f p_toundistort = Mat2f::zeros(1, 1),
+  //       p_undistorted = Mat2f::zeros(1, 1);
+  //
+  // p_toundistort = point2f_to_mat2f(point);
+  //
+  // undistortPoints(
+  //   p_toundistort,
+  //   p_undistorted,
+  //   camMatrix,
+  //   distCoeffs,
+  //   Mat::eye(Size(3,3), CV_32F),
+  //   projMatrix
+  // );
 
-  p_toundistort = point2f_to_mat2f(point);
-  
-  undistortPoints(
-    p_toundistort,
-    p_undistorted,
-    camMatrix,
-    distCoeffs,
-    Mat::eye(Size(3,3), CV_32F),
-    projMatrix
-  );
-
-  point = mat2f_to_point2f(p_undistorted);
+  //mat2f_to_point2f(p_undistorted);
 
   homog_image_point = point2f_to_homogeneous_mat_point(point);
 
@@ -821,14 +571,15 @@ Point2f map_point_from_image_to_world(Point2f point, Mat H, Mat camMatrix, Mat d
 }
 
 float get_marker_orientation(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix){
-  vector< Point2f > center_world;
-  for (int i = 0; i < 4; i++)
+  vector<Point2f> center_world;
+  for (int i = 0; i < 4; i++) {
     center_world.push_back(map_point_from_image_to_world(marker[i], H, camMatrix, distCoeffs, projMatrix));
+  }
   Point2f forward_vector = (center_world[1]+center_world[2]-center_world[0]-center_world[3])/2;
   return atan2(forward_vector.y, forward_vector.x);
 }
 
-Point3f get_robot_pose(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
+Point3f get_robot_pose(vector<Point2f> marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
   Point2f position = map_marker_from_image_to_world(marker, H, camMatrix, distCoeffs, projMatrix);
   float orientation = get_marker_orientation(marker, H, camMatrix, distCoeffs, projMatrix);
   return Point3f(position.x, position.y, orientation);
@@ -888,9 +639,13 @@ int main(int argc, char *argv[]) {
 	/* Read in basic detector parameters */
 	dictionaryId = parser.get<int>("d");
 	showRejected = parser.has("r");
-	estimatePose = parser.has("c");
+
+  if(!parser.has("c")) {
+    std::cout << "Need to provide camera intrinsic parameters!" << std::endl;
+    return 0;
+  }
+
 	markerLength = parser.get<float>("l");
-	useMetric = parser.has("m");
 	camId = parser.get<int>("ci");
 
 	/* Initialize detector parameters from file */
@@ -901,23 +656,13 @@ int main(int argc, char *argv[]) {
 			return 0;
 		}
 	}
-	
+
   vector< int > reference_marker_ids; // = {22, 23, 24, 25};
   vector< Point2f > reference_markers_world_plane;
   if (!readReferenceMarkersSpecs(parser.get<string>("rm"), reference_marker_ids, reference_markers_world_plane)) {
       cerr << "Invalid reference markers file" << endl;
       return 0;
   }
-  // const vector< Point2f > reference_markers_world_plane = {
-  //  Point2f(0.652, -0.3825),
-  //  Point2f(0.657, 0.2625),
-  //  Point2f(-0.650, 0.2015),
-  //  Point2f(-0.647, -0.3875)};
-  // const vector< Point2f > reference_markers_world_plane = {
-  //   Point2f(0.205, -0.135),
-  //   Point2f(0.205, 0.135),
-  //   Point2f(-0.205, 0.135),
-  //   Point2f(-0.205, -0.135)};
 
 	/* Add corner refinement in markers */
 	//detectorParams->cornerRefinementMethod = 2;
@@ -926,20 +671,10 @@ int main(int argc, char *argv[]) {
 	Ptr<aruco::Dictionary> dictionary =
 		aruco::getPredefinedDictionary(aruco::PREDEFINED_DICTIONARY_NAME(dictionaryId));
 
-	if(estimatePose) {
-		if(!readCameraParameters(parser.get<string>("c"), camMatrix, distCoeffs, projMatrix)) {
-			cerr << "Invalid camera file" << endl;
-			return 0;
-		}
+	if(!readCameraParameters(parser.get<string>("c"), camMatrix, distCoeffs, projMatrix)) {
+		cerr << "Invalid camera file" << endl;
+		return 0;
 	}
-
-	/* Read video/image recording command line parameters */
-	// TODO: remove or replace --> this is only used as file name for
-	//				input videos (i.e. non-live tracking)
-	//				--> not useful for our purposes, we only do live camera
-	//				stream tracking
-	recordVideo = parser.has("vo");
-	outputVideoWithMarkers = parser.has("rM");
 
 	/* Open camera input stream */
 	inputVideo.open(camId);
@@ -956,29 +691,17 @@ int main(int argc, char *argv[]) {
 	std::cout << "Image size: " << frameSize.width
 						<< " / " << frameSize.height << std::endl;
 
-
 	/* Initialize time stamps */
   lastVideoFrameWrite = Time::now();
   lastImageFrameWrite = Time::now();
 
-  /* Open video writer if video output filename is specified */
-  if(recordVideo) {
-    /* Create time stamped filename */
-    std::transform(codec.begin(), codec.end(),codec.begin(), ::tolower);
-    string videoFilename = "video_" + currentDateTime() + "." + codec;
-
-    /* Open video file */
-    openOutputVideo(videoFilename, videoCodec, recordVideoFPS);
-  }
-
 	/* Set up MQTT client */
 	MQTTClient m(parser.get<string>("h"), parser.get<int>("p"));
+  // Start the MQTT client's internal threading
 	m.start();
 
-
 	/* Set MQTT publishing topic */
-	std::string main_publish_channel  = "overhead_tracker/all_robot_pose_data";
-  std::string topicAck              = "overhead_tracker/config_ack";
+	std::string main_publish_channel = "overhead_tracker/all_robot_pose_data";
 
 	/* Subscribe to power data channels */
 	for (int index = 0; index < 50; index++) {
@@ -990,12 +713,12 @@ int main(int argc, char *argv[]) {
 		//std::cout << "Subscribed to topic: " << topicName  << std::endl;
 	}
 
-	/* Subscribe to configuration channel */
-	m.subscribe("overhead_tracker/config", stdf_configCallback);
-
   namedWindow("out", 1);
   setMouseCallback("out", onMouse, 0);
 
+  /* Homography for transferring image coordinates to world coordinates.  We also
+  Calculate the inverse of this for mapping in the other direction
+  */
   Mat H;
   if (!find_homography_to_reference_markers_image_plane(
     inputVideo,
@@ -1007,201 +730,264 @@ int main(int argc, char *argv[]) {
   ))
     return 0;
 
+  // Calculate the inverse of the homography matrix
+  Mat H_inv = H.inv();
+
+  std::map<int, cv::Point2f> robot_poses;
+  std::map<int, Ptr<aruco::Dictionary>> single_dictionaries;
+  // Cases
+  int state = 0; //0 -- look over whole image, 1 -- look over portions of image
+  int next_state = 0;
+
+  auto current_time = Time::now();
+
   /* --------------------------------------------
    *                Main event loop
    * -------------------------------------------- */
   while(inputVideo.grab()) {
     /* Retrieve new frame from camera */
+
     Mat image, imageCopy;
     inputVideo.retrieve(image);
+    /* Render results */
+    image.copyTo(imageCopy);
 
     vector<int> ids;
-    vector< vector<Point2f>> corners, rejected;
-    vector<Vec3d> rvecs, tvecs;
-    Mat rotMat;
+    vector<vector<Point2f>> corners, rejected;
 
     try {
-      /* Detect markers and estimate pose */
-      aruco::detectMarkers(image, dictionary, corners, ids,
-                            detectorParams, rejected);
-      // if(estimatePose && ids.size() > 0) {
-      //   aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix,
-      //                                     distCoeffs, rvecs, tvecs);
-      // }
 
-      /* Render results */
-      image.copyTo(imageCopy);
+      // TODO: Do this with previous poses instead of current
+
+      auto check_time = Time::now();
+      std::cout << "STATE: " << state << std::endl;
+
+      switch(state) {
+
+        /* Detect markers and estimate pose */
+        case 0:
+          aruco::detectMarkers(image, dictionary, corners, ids,
+                              detectorParams, rejected);
+          next_state = 1;
+          break;
+
+        case 1:
+
+          // std::vector<std::future<std::pair<int, std::vector<Point2f>>>> futures;
+
+          if(robot_poses.empty()) {
+            next_state = 0;
+          }
+
+          for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
+
+            // auto f = [&image, &H_inv]{
+            //
+            //
+            //   return std::make_pair(0, )
+            // };
+            //
+            // futures.push_back(std::async(std::launch::async, f));
+
+            auto time_now = Time::now();
+            std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
+            // std::cout << time_span.count() << std::endl;
+
+            double prev_x = it->second.x;
+            double prev_y = it->second.y;
+            double change = time_span.count()*0.1 + 0.04;
+            double x_max = prev_x + change;
+            double x_min = prev_x - change;
+            double y_max = prev_y + change;
+            double y_min = prev_y - change;
+
+            //Compute bounding boxes
+            std::vector<Point2f> rectangle_points;
+            std::vector<Point3f> rectangle_points_h;
+
+            rectangle_points.push_back(Point2f(x_min, y_max));
+            rectangle_points.push_back(Point2f(x_max, y_min));
+
+            convertPointsToHomogeneous(rectangle_points, rectangle_points_h);
+
+            //Go to image coordinates and plot rectangle
+            cv::transform(rectangle_points_h, rectangle_points_h, H_inv);
+            // Clear this to avoid bad results form reusing the variable.
+            rectangle_points.clear();
+            convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
+            rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
+
+            /* Detect markers and estimate pose */
+
+            // Clamp to max width and height
+            int start_x = cv::min(cv::max(rectangle_points[0].x, 0.0f), 1280.0f);
+            int start_y = cv::min(cv::max(rectangle_points[0].y, 0.0f), 720.f);
+            int num_cols = cv::min(cv::max(rectangle_points[1].x, 0.0f), 1280.0f) - start_x;
+            int num_rows = cv::min(cv::max(rectangle_points[1].y, 0.0f), 720.0f) - start_y;
+            cv::Mat local_image = image(cv::Rect(start_x, start_y, num_cols, num_rows));
+
+            vector<int> local_ids;
+            vector<vector<Point2f>> local_corners, local_rejected;
+            // auto f = [=local_corners, =local_rejected_loca_ids](const std::string& s ){return "Hello C++11 from " + s + ".";}
+            aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
+                                  detectorParams, local_rejected);
+
+            if(local_ids.size() == 0) {
+              // Reset stuffs
+              next_state = 0;
+              break;
+            } else {
+
+              // Add bounding box adjustment to local corners
+              local_corners[0][0].x += start_x;
+              local_corners[0][0].y += start_y;
+              local_corners[0][1].x += start_x;
+              local_corners[0][1].y += start_y;
+              local_corners[0][2].x += start_x;
+              local_corners[0][2].y += start_y;
+              local_corners[0][3].x += start_x;
+              local_corners[0][3].y += start_y;
+
+              // Make sure to add on the ID because the local_id will be 0
+              // return std::make_pair(local_ids[0]+it->first, local_corners[0])
+              ids.push_back(local_ids[0] + it->first);
+              corners.push_back(local_corners[0]);
+
+              next_state = 1;
+            }
+          }
+
+          break;
+      }
+
       if(ids.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, corners, ids);
         draw_xy_axes(imageCopy, corners, ids, reference_marker_ids);
-        // if(estimatePose) {
-        //   for(unsigned int i = 0; i < ids.size(); i++) {
-        //     aruco::drawAxis(imageCopy, camMatrix, distCoeffs,
-        //                   rvecs[i], tvecs[i], markerLength * 0.5f);
-        //   }
-        // }
       }
 
-      /* Write frame to video at specified fps if appropriate flags are set */
-      if(recordVideo && outputVideo.isOpened()) {
-        if(outputVideoWithMarkers) {
-          /* Render coordinate systems and markers into video frame */
-          writeFrameToVideo(imageCopy);
-        } else {
-          /* Render video without any markers or coordinate systems */
-          writeFrameToVideo(image);
-        }
-      }
-
-      if(recordFrames) {
-        /* Set file name */
-        std::string filename = getImageFilename(imageFolderName, frameNumber);
-
-        /* Write image to jpg file */
-        if(writeFrameToFile(image, filename)) {
-          /* Update frame number */
-          frameNumber++;
-        }
-      }
+      auto check_time_end = Time::now();
+      std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(check_time_end - check_time);
+      std::cout << "Total time: " << time_span.count() << std::endl;
 
       /* Create and send MQTT message */
       if(ids.size() > 0) {
 
-        if(estimatePose) {
-          /* Create MQTT message */
-          json message = {};
+        /* Create MQTT message */
+        json message = {};
 
-          /* Populate msg with data */
-          for(unsigned int i = 0; i < ids.size(); i++) {
+        /* Populate msg with data */
+        for(unsigned int i = 0; i < ids.size(); i++) {
 
-            std::string id = std::to_string(ids[i]);
+          // Undistort all the points up front
+          std::vector<cv::Point2f> undistorted_points;
 
-            /* Declare variables used for position and angle computation */
-            Point2f dP(0, 0);
-            Point2f xM(0, 0);
-            vector< Point2f > imgPoints;
-            vector< Point3f > inputPoints;
+          undistortPoints(
+            corners[i],
+            undistorted_points,
+            camMatrix,
+            distCoeffs,
+            Mat::eye(Size(3,3), CV_32F),
+            projMatrix
+          );
 
-            /* Add image coordinates to message as the center
-              * of marker coordinates */
-            Mat currentMarker = static_cast<InputArrayOfArrays>(corners).getMat(i);
-            Point2f cent(0, 0);
-            for(int p = 0; p < 4; p++) {
-              cent += currentMarker.ptr< Point2f >(0)[p];
-            }
-            cent = cent / 4.;
+          std::vector<cv::Point3f> homogeneous_points;
+          std::vector<Point2f> world_points;
 
-            /* Publish metric or image coordinates based on input flag -m */
-            if(useMetric) {
+          convertPointsToHomogeneous(undistorted_points, homogeneous_points);
+          cv::transform(homogeneous_points, homogeneous_points, H);
+          convertPointsFromHomogeneous(homogeneous_points, world_points);
 
-              if(find(reference_marker_ids.begin(), reference_marker_ids.end(), ids[i]) != reference_marker_ids.end()) {
-                continue;
-              }
+          Point2f forward_vector = (world_points[1]+world_points[2]-world_points[0]-world_points[3])/2;
+          double orientation = atan2(forward_vector.y, forward_vector.x);
+          double x = 0.25*(world_points[0].x + world_points[1].x + world_points[2].x + world_points[3].x);
+          double y = 0.25*(world_points[0].y + world_points[1].y + world_points[2].y + world_points[3].y);
 
-              Point3f pose = get_robot_pose(corners[i], H, camMatrix, distCoeffs, projMatrix);
+          std::string id = std::to_string(ids[i]);
 
-              /* Add pose to msg */
-              message[id]["x"] = pose.x;
-              /* Flip y-axis to make the coordinate system right-handed */
-              message[id]["y"] = pose.y;
-              // Add rotatioin to message
-              message[id]["theta"] = pose.z;
-            } else {
-
-              // Fix the coordinate system based on the origin marker
-              if(ids[i] == origin_marker_id) {
-                continue;
-              }
-
-              /* Compute orientation of marker through corners of
-                * marker in image coordinates
-                */
-              Point2f dP = currentMarker.ptr< Point2f >(0)[1] - currentMarker.ptr< Point2f >(0)[0];
-              Point2f dP2 = currentMarker.ptr< Point2f >(0)[2] - currentMarker.ptr< Point2f >(0)[3];
-
-              /* Add pose to msg (i.e. center of marker)
-                *  Center coordinate systems in the center of the image
-                *  such that x \in [-640, 640] and y \in [-360, 360].
-                *  Additionally, flip the y-axis to make the coordinate
-                *  system right-handed.
-                */
-
-              //double x = (cent.x - frameSize.width/2 - OFFSET_X_PX)  * SCALE_X;
-              //double y = (frameSize.height/2 - cent.y - OFFSET_Y_PX) * SCALE_Y;
-              //double x_temp = rotate_x(x, y);
-              double x_temp = (cent.x - frameSize.width/2)*SCALE_X;
-              double y_temp = (frameSize.height/2 - cent.y)*SCALE_Y;
-              double x = -(x_temp*X_TRANSFORM[0] + y_temp*X_TRANSFORM[1] + X_TRANSFORM[2]);
-              double y = -(x_temp*Y_TRANSFORM[0] + y_temp*Y_TRANSFORM[1] + Y_TRANSFORM[2]);
-
-              /* Add coordinates to MQTT message */
-              message[id]["x"] = x;
-              message[id]["y"] = y;
-
-              // We compute theta using the average of the corner points
-              message[id]["theta"] = atan2(-(dP.y + dP2.y)/2.0, (dP.x + dP2.x)/2.0);
-            }
-
-            /* Add battery voltage data if available, or -1 otherwise */
-            if(powerData.find(id) != powerData.end()) {
-              message[id]["powerData"] = powerData[id];
-            } else {
-              message[id]["powerData"] = -1;
-            }
-
-            /* Add battery voltage data if available, or -1 otherwise */
-            if(status_data.find(id) != status_data.end()) {
-              message[id]["charging"] = status_data[id];
-            } else {
-              message[id]["charging"] = -1;
-            }
-
-            double batteryLevel = (double) message[id]["powerData"];
-			ss.str("");
-			ss.clear();
-			ss  << std::fixed<< std::setprecision(3) << batteryLevel;
-            const String powerDataStr = "battery: " + ss.str();
-			ss.str("");
-			ss.clear();
-			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
-            const String xStr = "x:       " + ss.str();
-			ss.str("");
-			ss.clear();
-			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
-            const String yStr = "y:       " + ss.str();
-			ss.str("");
-			ss.clear();
-			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
-            const String thetaStr = "theta:   " + ss.str();
-            vector<double> rip;
-            float u, v;
-            u = 0.25*(corners[i][0].x+corners[i][1].x+corners[i][2].x+corners[i][3].x);
-            v = 0.25*(corners[i][0].y+corners[i][1].y+corners[i][2].y+corners[i][3].y);
-            rip.push_back(u);
-            rip.push_back(v);
-            robotImagePosition[id] = rip;
-
-            if (clickedOnGritsbot[id]) {
-                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-            } else if (closeToGritsbot[id]) {
-                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-						}
+          // Make sure that we don't include reference markers in IDs
+          if(find(reference_marker_ids.begin(), reference_marker_ids.end(), ids[i]) != reference_marker_ids.end()) {
+            continue;
           }
 
-          /* Send MQTT message as JSON dump */
-          std::string s = message.dump();
-          //std::cout << s << std::endl;
+          // This we should really only have to do if we're in this state...
+          if(state == 0) {
+            single_dictionaries[ids[i]] = generate_single_dictionary(ids[i], 4, dictionary);
+          }
 
-          /* Publish MQTT message */
-          m.async_publish(main_publish_channel, s);
+          // This we need to do all the time to update the bounding boxes
+          robot_poses[ids[i]] = Point2f(x, y);
+
+          /* Add pose to msg */
+          message[id]["x"] = x;
+          /* Flip y-axis to make the coordinate system right-handed */
+          message[id]["y"] = y;
+          // Add rotatioin to message
+          message[id]["theta"] = orientation;
+
+          /* Add battery voltage data if available, or -1 otherwise */
+          if(powerData.find(id) != powerData.end()) {
+            message[id]["powerData"] = powerData[id];
+          } else {
+            message[id]["powerData"] = -1;
+          }
+
+          /* Add battery voltage data if available, or -1 otherwise */
+          if(status_data.find(id) != status_data.end()) {
+            message[id]["charging"] = status_data[id];
+          } else {
+            message[id]["charging"] = -1;
+          }
+
+          double batteryLevel = (double) message[id]["powerData"];
+    			ss.str("");
+    			ss.clear();
+    			ss  << std::fixed<< std::setprecision(3) << batteryLevel;
+                const String powerDataStr = "battery: " + ss.str();
+    			ss.str("");
+    			ss.clear();
+    			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
+                const String xStr = "x:       " + ss.str();
+    			ss.str("");
+    			ss.clear();
+    			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
+                const String yStr = "y:       " + ss.str();
+    			ss.str("");
+    			ss.clear();
+    			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
+                const String thetaStr = "theta:   " + ss.str();
+                vector<double> rip;
+                float u, v;
+                u = 0.25*(corners[i][0].x+corners[i][1].x+corners[i][2].x+corners[i][3].x);
+                v = 0.25*(corners[i][0].y+corners[i][1].y+corners[i][2].y+corners[i][3].y);
+                rip.push_back(u);
+                rip.push_back(v);
+                robotImagePosition[id] = rip;
+
+          if (clickedOnGritsbot[id]) {
+              putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+              putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+              putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+              putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+          } else if (closeToGritsbot[id]) {
+              putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+              putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+              putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+              putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+					}
         }
+
+        /* Send MQTT message as JSON dump */
+        std::string s = message.dump();
+
+        /* Publish MQTT message */
+        m.async_publish(main_publish_channel, s);
+
       }
+
+      auto time_now = Time::now();
+      // std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
+      // std::cout << time_span.count() << std::endl;
+      current_time = time_now;
 
       if(showRejected && rejected.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, rejected, noArray(),
@@ -1211,23 +997,28 @@ int main(int argc, char *argv[]) {
       /* Show rendered image on screen */
       imshow("out", imageCopy);
 
-      char key = (char)waitKey(1);
-      if(key == 27) break;
+      char key = (char) waitKey(1);
+      std::cout << (int) key << std::endl;
+      if(key == 27) {
+        break;
+      }
+
+      // If we're pressing space...
+      if(key == 32) {
+        single_dictionaries.clear();
+        robot_poses.clear();
+        next_state = 0;
+      }
+
+      // Go to next state
+      state = next_state;
+
     } catch (int e) {
       // TODO: Exception handling
     }
 
     /* Debug output if desired */
     //printDetectionRate();
-
-    /* Send status ack message if configuration changes */
-    if(configUpdate) {
-      json statusMessage = {};
-      statusMessage["status"] = statusMsg;
-      m.async_publish(topicAck, statusMessage.dump());
-
-      configUpdate = false;
-    }
   }
 
   /* Close capture device */
