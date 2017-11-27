@@ -760,7 +760,7 @@ int main(int argc, char *argv[]) {
       // TODO: Do this with previous poses instead of current
 
       auto check_time = Time::now();
-      std::cout << "STATE: " << state << std::endl;
+      //std::cout << "STATE: " << state << std::endl;
 
       switch(state) {
 
@@ -867,7 +867,13 @@ int main(int argc, char *argv[]) {
 
       auto check_time_end = Time::now();
       std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(check_time_end - check_time);
-      std::cout << "Total time: " << time_span.count() << std::endl;
+      ss.str("");
+      ss.clear();
+      ss  << std::fixed<< std::setprecision(3) << time_span.count()*1000.0f;
+      const String time_str = "elapsed time: " + ss.str();
+      putText(imageCopy, time_str, Point(20, 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+
+      //std::cout << "Total time: " << time_span.count() << std::endl;
 
       /* Create and send MQTT message */
       if(ids.size() > 0) {
@@ -998,7 +1004,6 @@ int main(int argc, char *argv[]) {
       imshow("out", imageCopy);
 
       char key = (char) waitKey(1);
-      std::cout << (int) key << std::endl;
       if(key == 27) {
         break;
       }
