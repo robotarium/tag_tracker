@@ -25,6 +25,18 @@ chown ${uid}:${gid} -R /home/developer
 #WORKDIR $CURRENTDIR
 ENV PROGRAMDIR /home/developer/programs
 
+<<<<<<< HEAD
+=======
+# To avoid potential future errors, allow src files to be pulled - add the following lines to sources.list
+#RUN echo 'deb-src http://archive.ubuntu.com/ubuntu trusty main restricted #Added by software-properties' >>/etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-updates restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-backports main restricted universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://security.ubuntu.com/ubuntu trusty-security restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+#    echo 'deb-src http://gb.archive.ubuntu.com/ubuntu/ trusty-proposed restricted main universe multiverse #Added by software-properties' >> /etc/apt/sources.list && \
+ #   apt-get -qq update
+
+>>>>>>> 9a7593dd1ac250a7d825a437a1e96e14285e5f7e
 #Search for multiverse packages as well
 RUN sudo apt-get -y install software-properties-common python-software-properties python3-software-properties
 RUN sudo add-apt-repository "multiverse"
@@ -72,6 +84,18 @@ RUN cd $PROGRAMDIR && \
     make -j $(($(nproc) - 1)) && \
     make install
 
+<<<<<<< HEAD
+=======
+# Install FFMpeg library
+#RUN git clone https://github.com/FFmpeg/FFmpeg.git && \
+#    apt-get -y install libfdk-aac-dev && \
+#    cd FFmpeg && \
+#    ./configure --enable-nonfree --enable-pic --enable-shared --enable-gpl --enable-pthreads --enable-libx264 --enable-libfdk-aac --enable-libmp3lame && \
+#    make -j $(($(nproc) - 1)) && \
+#    make install && \
+#    cd ..
+
+>>>>>>> 9a7593dd1ac250a7d825a437a1e96e14285e5f7e
 # (PAUL) Get ffmpeg from standard lib
 RUN sudo apt-get -y install ffmpeg
 
