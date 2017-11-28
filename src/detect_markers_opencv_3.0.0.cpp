@@ -740,6 +740,7 @@ int main(int argc, char *argv[]) {
   int next_state = 0;
 
   auto current_time = Time::now();
+  double resize_factor = 0.25;
 
   /* --------------------------------------------
    *                Main event loop
@@ -750,7 +751,8 @@ int main(int argc, char *argv[]) {
     Mat image, imageCopy;
     inputVideo.retrieve(image);
     /* Render results */
-    image.copyTo(imageCopy);
+    resize(image, imageCopy, Size(), resize_factor, resize_factor, CV_INTER_LINEAR);
+    //image.copyTo(imageCopy);
 
     vector<int> ids;
     vector<vector<Point2f>> corners, rejected;
@@ -777,7 +779,8 @@ int main(int argc, char *argv[]) {
 
           if(robot_poses.empty()) {
             next_state = 0;
-          }
+            break;
+          }          
 
           for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
 
@@ -815,7 +818,7 @@ int main(int argc, char *argv[]) {
             // Clear this to avoid bad results form reusing the variable.
             rectangle_points.clear();
             convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
-            rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
+            rectangle(imageCopy, rectangle_points[0]*resize_factor, rectangle_points[1]*resize_factor,  Scalar(0, 255, 255));
 
             /* Detect markers and estimate pose */
 
@@ -861,8 +864,8 @@ int main(int argc, char *argv[]) {
       }
 
       if(ids.size() > 0) {
-        aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        draw_xy_axes(imageCopy, corners, ids, reference_marker_ids);
+        //aruco::drawDetectedMarkers(imageCopy, corners, ids);
+        //draw_xy_axes(imageCopy, corners, ids, reference_marker_ids);
       }
 
       auto check_time_end = Time::now();
@@ -944,42 +947,42 @@ int main(int argc, char *argv[]) {
             message[id]["charging"] = -1;
           }
 
-          double batteryLevel = (double) message[id]["powerData"];
-    			ss.str("");
-    			ss.clear();
-    			ss  << std::fixed<< std::setprecision(3) << batteryLevel;
-                const String powerDataStr = "battery: " + ss.str();
-    			ss.str("");
-    			ss.clear();
-    			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
-                const String xStr = "x:       " + ss.str();
-    			ss.str("");
-    			ss.clear();
-    			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
-                const String yStr = "y:       " + ss.str();
-    			ss.str("");
-    			ss.clear();
-    			ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
-                const String thetaStr = "theta:   " + ss.str();
-                vector<double> rip;
-                float u, v;
-                u = 0.25*(corners[i][0].x+corners[i][1].x+corners[i][2].x+corners[i][3].x);
-                v = 0.25*(corners[i][0].y+corners[i][1].y+corners[i][2].y+corners[i][3].y);
-                rip.push_back(u);
-                rip.push_back(v);
-                robotImagePosition[id] = rip;
-
-          if (clickedOnGritsbot[id]) {
-              putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-              putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-              putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-              putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-          } else if (closeToGritsbot[id]) {
-              putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-              putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-              putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-              putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-					}
+          // double batteryLevel = (double) message[id]["powerData"];
+    			// ss.str("");
+    			// ss.clear();
+    			// ss  << std::fixed<< std::setprecision(3) << batteryLevel;
+          //       const String powerDataStr = "battery: " + ss.str();
+    			// ss.str("");
+    			// ss.clear();
+    			// ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["x"]);
+          //       const String xStr = "x:       " + ss.str();
+    			// ss.str("");
+    			// ss.clear();
+    			// ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["y"]);
+          //       const String yStr = "y:       " + ss.str();
+    			// ss.str("");
+    			// ss.clear();
+    			// ss  << std::fixed<< std::setprecision(3) << static_cast<double>(message[id]["theta"]);
+          //       const String thetaStr = "theta:   " + ss.str();
+          //       vector<double> rip;
+          //       float u, v;
+          //       u = 0.25*(corners[i][0].x+corners[i][1].x+corners[i][2].x+corners[i][3].x);
+          //       v = 0.25*(corners[i][0].y+corners[i][1].y+corners[i][2].y+corners[i][3].y);
+          //       rip.push_back(u);
+          //       rip.push_back(v);
+          //       robotImagePosition[id] = rip;
+          //
+          // if (clickedOnGritsbot[id]) {
+          //     putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+          //     putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+          //     putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+          //     putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+          // } else if (closeToGritsbot[id]) {
+          //     putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+          //     putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+          //     putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+          //     putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+					// }
         }
 
         /* Send MQTT message as JSON dump */
