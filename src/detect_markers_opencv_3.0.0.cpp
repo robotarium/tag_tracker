@@ -343,10 +343,11 @@ namespace {
 	        "{c        |       | Camera intrinsic parameters. Needed for camera pose }"
 	        "{l        | 0.1   | Marker side length (in meters). Needed for correct scale in camera pose }"
 	        "{dp       |       | File of marker detector parameters }"
+          "{bb       | false | Whether to use bounding boxes }"
 	        "{r        |       | show rejected candidates too }"
 			    "{h        | localhost | MQTT broker }"
 			    "{p        | 1883      | MQTT port }"
-			    "{s        |  | frame scale: if specified, frame sizes are multiplied by s }"
+			    "{s        | 1.0  | frame scale: if specified, frame sizes are multiplied by s }"
 			    "{rm        |  | reference markers: reference markers yml specification file }";
 }
 
@@ -691,6 +692,9 @@ int main(int argc, char *argv[]) {
 	std::cout << "Image size: " << frameSize.width
 						<< " / " << frameSize.height << std::endl;
 
+  // Whether to use bounding boxes
+  bool use_boxes = parser.get<bool>("bb");
+
 	/* Initialize time stamps */
   lastVideoFrameWrite = Time::now();
   lastImageFrameWrite = Time::now();
@@ -740,7 +744,6 @@ int main(int argc, char *argv[]) {
   int next_state = 0;
 
   auto current_time = Time::now();
-  double resize_factor = 0.25;
 
   /* --------------------------------------------
    *                Main event loop
@@ -751,8 +754,8 @@ int main(int argc, char *argv[]) {
     Mat image, imageCopy;
     inputVideo.retrieve(image);
     /* Render results */
-    resize(image, imageCopy, Size(), resize_factor, resize_factor, CV_INTER_LINEAR);
-    //image.copyTo(imageCopy);
+    // resize(image, imageCopy, Size(), resize_factor, resize_factor, CV_INTER_LINEAR);
+    image.copyTo(imageCopy);
 
     vector<int> ids;
     vector<vector<Point2f>> corners, rejected;
@@ -770,7 +773,10 @@ int main(int argc, char *argv[]) {
         case 0:
           aruco::detectMarkers(image, dictionary, corners, ids,
                               detectorParams, rejected);
-          next_state = 1;
+
+          if(use_boxes) {
+            next_state = 1;
+          }
           break;
 
         case 1:
@@ -779,8 +785,7 @@ int main(int argc, char *argv[]) {
 
           if(robot_poses.empty()) {
             next_state = 0;
-            break;
-          }          
+          }
 
           for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
 
@@ -794,7 +799,6 @@ int main(int argc, char *argv[]) {
 
             auto time_now = Time::now();
             std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
-            // std::cout << time_span.count() << std::endl;
 
             double prev_x = it->second.x;
             double prev_y = it->second.y;
@@ -818,8 +822,7 @@ int main(int argc, char *argv[]) {
             // Clear this to avoid bad results form reusing the variable.
             rectangle_points.clear();
             convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
-            rectangle(imageCopy, rectangle_points[0]*resize_factor, rectangle_points[1]*resize_factor,  Scalar(0, 255, 255));
-
+            rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
             /* Detect markers and estimate pose */
 
             // Clamp to max width and height
@@ -827,6 +830,7 @@ int main(int argc, char *argv[]) {
             int start_y = cv::min(cv::max(rectangle_points[0].y, 0.0f), 720.f);
             int num_cols = cv::min(cv::max(rectangle_points[1].x, 0.0f), 1280.0f) - start_x;
             int num_rows = cv::min(cv::max(rectangle_points[1].y, 0.0f), 720.0f) - start_y;
+
             cv::Mat local_image = image(cv::Rect(start_x, start_y, num_cols, num_rows));
 
             vector<int> local_ids;
@@ -855,8 +859,6 @@ int main(int argc, char *argv[]) {
               // return std::make_pair(local_ids[0]+it->first, local_corners[0])
               ids.push_back(local_ids[0] + it->first);
               corners.push_back(local_corners[0]);
-
-              next_state = 1;
             }
           }
 
@@ -876,9 +878,6 @@ int main(int argc, char *argv[]) {
       const String time_str = "elapsed time: " + ss.str();
       putText(imageCopy, time_str, Point(20, 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
 
-      //std::cout << "Total time: " << time_span.count() << std::endl;
-
-      /* Create and send MQTT message */
       if(ids.size() > 0) {
 
         /* Create MQTT message */
@@ -932,6 +931,8 @@ int main(int argc, char *argv[]) {
           message[id]["y"] = y;
           // Add rotatioin to message
           message[id]["theta"] = orientation;
+
+          message[id]["total_time"] = time_span.count();
 
           /* Add battery voltage data if available, or -1 otherwise */
           if(powerData.find(id) != powerData.end()) {
@@ -990,12 +991,18 @@ int main(int argc, char *argv[]) {
 
         /* Publish MQTT message */
         m.async_publish(main_publish_channel, s);
-
       }
 
       auto time_now = Time::now();
       // std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
       // std::cout << time_span.count() << std::endl;
+      std::chrono::duration<double> time_span_loop = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
+      ss.str("");
+      ss.clear();
+      ss  << std::fixed << std::setprecision(3) << time_span_loop.count()*1000.0f;
+      const String loop_time_str = "elapsed time loop: " + ss.str();
+      putText(imageCopy, loop_time_str, Point(20, 40), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+
       current_time = time_now;
 
       if(showRejected && rejected.size() > 0) {
