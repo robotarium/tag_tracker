@@ -792,9 +792,8 @@ int main(int argc, char *argv[]) {
 
           for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
 
-            if(async_detection) {
             auto f = [&current_time, &imageCopy, &single_dictionaries,
-                      &detectorParams, &next_state, &image, &H_inv, it]{
+                      &detectorParams, &next_state, &image, &H_inv, it] {
 
               auto time_now = Time::now();
               std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
@@ -811,8 +810,11 @@ int main(int argc, char *argv[]) {
               std::vector<Point2f> rectangle_points;
               std::vector<Point3f> rectangle_points_h;
 
-              rectangle_points.push_back(Point2f(x_min, y_max));
-              rectangle_points.push_back(Point2f(x_max, y_min));
+              rectangle_points.push_back(Point2f(x_min, y_max)); // Upper left
+              rectangle_points.push_back(Point2f(x_min, y_min)); // Lower left
+              rectangle_points.push_back(Point2f(x_max, y_min)); // Lower right
+              rectangle_points.push_back(Point2f(x_max, y_max)); // Upper right
+              rectangle_points.push_back(Point2f(prev_x, prev_y)); // Center
 
               convertPointsToHomogeneous(rectangle_points, rectangle_points_h);
 
@@ -821,16 +823,37 @@ int main(int argc, char *argv[]) {
               // Clear this to avoid bad results form reusing the variable.
               rectangle_points.clear();
               convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
-              rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
+
+              std::vector<double> xs;
+              std::vector<double> ys;
+
+              // Clamp x elements to frame
+              std::transform(rectangle_points.begin(), rectangle_points.end(), std::back_inserter(xs),
+              [](const cv::Point2f& point) {
+                return std::min(std::forward<double>(std::max(point.x, 0.0f)), (double) frameWidth);
+              });
+
+              // Clamp y elements to frame
+              std::transform(rectangle_points.begin(), rectangle_points.end(), std::back_inserter(ys),
+              [](const cv::Point2f& point) {
+                return std::min(std::forward<double>(std::max(point.y, 0.0f)), (double) frameHeight);
+              });
+
+              // Cast to int because we're using pixles
+              int max_x = *std::max_element(xs.begin(), xs.end());
+              int max_y = *std::max_element(ys.begin(), ys.end());
+              int min_x = *std::min_element(xs.begin(), xs.end());
+              int min_y = *std::min_element(ys.begin(), ys.end());
+
+              // line(imageCopy, rectangle_points[0], rectangle_points[1], Scalar(0, 255, 255));
+              // line(imageCopy, rectangle_points[1], rectangle_points[2], Scalar(0, 255, 255));
+              // line(imageCopy, rectangle_points[2], rectangle_points[3], Scalar(0, 255, 255));
+              // line(imageCopy, rectangle_points[3], rectangle_points[0], Scalar(0, 255, 255));
+              // line(imageCopy, rectangle_points[0], rectangle_points[4], Scalar(0, 255, 255));
+
+              rectangle(imageCopy, Point2f(min_x, min_y), Point2f(max_x, max_y),  Scalar(0, 255, 255));
               /* Detect markers and estimate pose */
-
-              // Clamp to max width and height
-              int start_x = cv::min(cv::max(rectangle_points[0].x, 0.0f), 1280.0f);
-              int start_y = cv::min(cv::max(rectangle_points[0].y, 0.0f), 720.f);
-              int num_cols = cv::min(cv::max(rectangle_points[1].x, 0.0f), 1280.0f) - start_x;
-              int num_rows = cv::min(cv::max(rectangle_points[1].y, 0.0f), 720.0f) - start_y;
-
-              cv::Mat local_image = image(cv::Rect(start_x, start_y, num_cols, num_rows));
+              cv::Mat local_image = image(cv::Rect(min_x, min_y, max_x-min_x, max_y-min_y));
 
               vector<int> local_ids;
               vector<vector<Point2f>> local_corners, local_rejected;
@@ -847,104 +870,45 @@ int main(int argc, char *argv[]) {
               } else {
 
                 // Add bounding box adjustment to local corners
-                local_corners[0][0].x += start_x;
-                local_corners[0][0].y += start_y;
-                local_corners[0][1].x += start_x;
-                local_corners[0][1].y += start_y;
-                local_corners[0][2].x += start_x;
-                local_corners[0][2].y += start_y;
-                local_corners[0][3].x += start_x;
-                local_corners[0][3].y += start_y;
+                local_corners[0][0].x += min_x;
+                local_corners[0][0].y += min_y;
+                local_corners[0][1].x += min_x;
+                local_corners[0][1].y += min_y;
+                local_corners[0][2].x += min_x;
+                local_corners[0][2].y += min_y;
+                local_corners[0][3].x += min_x;
+                local_corners[0][3].y += min_y;
 
                 // Make sure to add on the ID because the local_id will be 0
                 return std::make_pair(local_ids[0]+it->first, local_corners[0]);
               }
             };
 
-            futures.push_back(std::async(std::launch::async, f));
+            if(async_detection) {
+              futures.push_back(std::async(std::launch::async, f));
+            } else {
 
-          } else {
-              auto time_now = Time::now();
-              std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
+              auto result = f();
 
-              double prev_x = it->second.x;
-              double prev_y = it->second.y;
-              double change = time_span.count()*0.1 + 0.04;
-              double x_max = prev_x + change;
-              double x_min = prev_x - change;
-              double y_max = prev_y + change;
-              double y_min = prev_y - change;
-
-              //Compute bounding boxes
-              std::vector<Point2f> rectangle_points;
-              std::vector<Point3f> rectangle_points_h;
-
-              rectangle_points.push_back(Point2f(x_min, y_max));
-              rectangle_points.push_back(Point2f(x_max, y_min));
-
-              convertPointsToHomogeneous(rectangle_points, rectangle_points_h);
-
-              //Go to image coordinates and plot rectangle
-              cv::transform(rectangle_points_h, rectangle_points_h, H_inv);
-              // Clear this to avoid bad results form reusing the variable.
-              rectangle_points.clear();
-              convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
-              rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
-              /* Detect markers and estimate pose */
-
-              // Clamp to max width and height
-              int start_x = cv::min(cv::max(rectangle_points[0].x, 0.0f), 1280.0f);
-              int start_y = cv::min(cv::max(rectangle_points[0].y, 0.0f), 720.f);
-              int num_cols = cv::min(cv::max(rectangle_points[1].x, 0.0f), 1280.0f) - start_x;
-              int num_rows = cv::min(cv::max(rectangle_points[1].y, 0.0f), 720.0f) - start_y;
-
-              cv::Mat local_image = image(cv::Rect(start_x, start_y, num_cols, num_rows));
-
-              vector<int> local_ids;
-              vector<vector<Point2f>> local_corners, local_rejected;
-              // auto f = [=local_corners, =local_rejected_loca_ids](const std::string& s ){return "Hello C++11 from " + s + ".";}
-              aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
-                                    detectorParams, local_rejected);
-
-              // std::cout << "HI" << std::endl;
-
-              if(local_ids.size() == 0) {
-                // Reset stuffs
-                next_state = 0;
-                break;
-              } else {
-
-                // Add bounding box adjustment to local corners
-                local_corners[0][0].x += start_x;
-                local_corners[0][0].y += start_y;
-                local_corners[0][1].x += start_x;
-                local_corners[0][1].y += start_y;
-                local_corners[0][2].x += start_x;
-                local_corners[0][2].y += start_y;
-                local_corners[0][3].x += start_x;
-                local_corners[0][3].y += start_y;
-
-                // Make sure to add on the ID because the local_id will be 0
-                // return std::make_pair(local_ids[0]+it->first, local_corners[0])
-                ids.push_back(local_ids[0] + it->first);
-                corners.push_back(local_corners[0]);
-              }
+              ids.push_back(result.first);
+              corners.push_back(result.second);
             }
           }
 
+          // Get results from async futures that we spun up earlier
           if(async_detection) {
             for(int i = 0; i < futures.size(); ++i) {
               auto result = futures[i].get();
 
               // ID will be -1 if it wasn't found
               if(result.first > 0) {
-                // std::cout << result.first << std::endl;
 
                 ids.push_back(result.first);
                 corners.push_back(result.second);
               } else {
                 // We didn't find one of the previously tracked IDs, so go back to
                 // the first state.
+
                 next_state = 0;
               }
             }
@@ -975,21 +939,11 @@ int main(int argc, char *argv[]) {
         for(unsigned int i = 0; i < ids.size(); i++) {
 
           // Undistort all the points up front
-          std::vector<cv::Point2f> undistorted_points;
-
-          undistortPoints(
-            corners[i],
-            undistorted_points,
-            camMatrix,
-            distCoeffs,
-            Mat::eye(Size(3,3), CV_32F),
-            projMatrix
-          );
 
           std::vector<cv::Point3f> homogeneous_points;
           std::vector<Point2f> world_points;
 
-          convertPointsToHomogeneous(undistorted_points, homogeneous_points);
+          convertPointsToHomogeneous(corners[i], homogeneous_points);
           cv::transform(homogeneous_points, homogeneous_points, H);
           convertPointsFromHomogeneous(homogeneous_points, world_points);
 
