@@ -27,5 +27,5 @@
 # =================================
 #../build/detectMarkers -d=0 -ci=0 -c=../data/cameraCalibration.yml -l=0.036 -m --vo
 #../build/detectMarkers -d=0 -ci=0 -c=../data/cameraCalibration.yml -l=0.036 -m
-../build/detectMarkers -m -bb=true -s=0.75 -h=192.168.1.2 -p=1884 -d=0 -ci=0 -c=../data/camera.yml -l=0.026 -dp=../detector_params.yml -rm=../data/reference_markers_setup.yml
+../build/detectMarkers -m -ad=true -bb=true -s=1.0 -h=192.168.1.2 -p=1884 -d=0 -ci=0 -c=../data/camera.yml -l=0.026 -dp=../detector_params.yml -rm=../data/reference_markers_setup.yml
 

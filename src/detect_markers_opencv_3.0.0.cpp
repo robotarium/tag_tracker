@@ -344,6 +344,7 @@ namespace {
 	        "{l        | 0.1   | Marker side length (in meters). Needed for correct scale in camera pose }"
 	        "{dp       |       | File of marker detector parameters }"
           "{bb       | false | Whether to use bounding boxes }"
+          "{ad       | false | Whether to use threading in detection }"
 	        "{r        |       | show rejected candidates too }"
 			    "{h        | localhost | MQTT broker }"
 			    "{p        | 1883      | MQTT port }"
@@ -658,12 +659,14 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-  vector< int > reference_marker_ids; // = {22, 23, 24, 25};
-  vector< Point2f > reference_markers_world_plane;
+  vector<int> reference_marker_ids; // = {22, 23, 24, 25};
+  vector<Point2f> reference_markers_world_plane;
   if (!readReferenceMarkersSpecs(parser.get<string>("rm"), reference_marker_ids, reference_markers_world_plane)) {
       cerr << "Invalid reference markers file" << endl;
       return 0;
   }
+
+  bool async_detection = parser.get<bool>("ad");
 
 	/* Add corner refinement in markers */
 	//detectorParams->cornerRefinementMethod = 2;
@@ -781,7 +784,7 @@ int main(int argc, char *argv[]) {
 
         case 1:
 
-          // std::vector<std::future<std::pair<int, std::vector<Point2f>>>> futures;
+          std::vector<std::future<std::pair<int, std::vector<Point2f>>>> futures;
 
           if(robot_poses.empty()) {
             next_state = 0;
@@ -789,76 +792,161 @@ int main(int argc, char *argv[]) {
 
           for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
 
-            // auto f = [&image, &H_inv]{
-            //
-            //
-            //   return std::make_pair(0, )
-            // };
-            //
-            // futures.push_back(std::async(std::launch::async, f));
+            if(async_detection) {
+            auto f = [&current_time, &imageCopy, &single_dictionaries,
+                      &detectorParams, &next_state, &image, &H_inv, it]{
 
-            auto time_now = Time::now();
-            std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
+              auto time_now = Time::now();
+              std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
 
-            double prev_x = it->second.x;
-            double prev_y = it->second.y;
-            double change = time_span.count()*0.1 + 0.04;
-            double x_max = prev_x + change;
-            double x_min = prev_x - change;
-            double y_max = prev_y + change;
-            double y_min = prev_y - change;
+              double prev_x = it->second.x;
+              double prev_y = it->second.y;
+              double change = time_span.count()*0.1 + 0.04;
+              double x_max = prev_x + change;
+              double x_min = prev_x - change;
+              double y_max = prev_y + change;
+              double y_min = prev_y - change;
 
-            //Compute bounding boxes
-            std::vector<Point2f> rectangle_points;
-            std::vector<Point3f> rectangle_points_h;
+              //Compute bounding boxes
+              std::vector<Point2f> rectangle_points;
+              std::vector<Point3f> rectangle_points_h;
 
-            rectangle_points.push_back(Point2f(x_min, y_max));
-            rectangle_points.push_back(Point2f(x_max, y_min));
+              rectangle_points.push_back(Point2f(x_min, y_max));
+              rectangle_points.push_back(Point2f(x_max, y_min));
 
-            convertPointsToHomogeneous(rectangle_points, rectangle_points_h);
+              convertPointsToHomogeneous(rectangle_points, rectangle_points_h);
 
-            //Go to image coordinates and plot rectangle
-            cv::transform(rectangle_points_h, rectangle_points_h, H_inv);
-            // Clear this to avoid bad results form reusing the variable.
-            rectangle_points.clear();
-            convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
-            rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
-            /* Detect markers and estimate pose */
+              //Go to image coordinates and plot rectangle
+              cv::transform(rectangle_points_h, rectangle_points_h, H_inv);
+              // Clear this to avoid bad results form reusing the variable.
+              rectangle_points.clear();
+              convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
+              rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
+              /* Detect markers and estimate pose */
 
-            // Clamp to max width and height
-            int start_x = cv::min(cv::max(rectangle_points[0].x, 0.0f), 1280.0f);
-            int start_y = cv::min(cv::max(rectangle_points[0].y, 0.0f), 720.f);
-            int num_cols = cv::min(cv::max(rectangle_points[1].x, 0.0f), 1280.0f) - start_x;
-            int num_rows = cv::min(cv::max(rectangle_points[1].y, 0.0f), 720.0f) - start_y;
+              // Clamp to max width and height
+              int start_x = cv::min(cv::max(rectangle_points[0].x, 0.0f), 1280.0f);
+              int start_y = cv::min(cv::max(rectangle_points[0].y, 0.0f), 720.f);
+              int num_cols = cv::min(cv::max(rectangle_points[1].x, 0.0f), 1280.0f) - start_x;
+              int num_rows = cv::min(cv::max(rectangle_points[1].y, 0.0f), 720.0f) - start_y;
 
-            cv::Mat local_image = image(cv::Rect(start_x, start_y, num_cols, num_rows));
+              cv::Mat local_image = image(cv::Rect(start_x, start_y, num_cols, num_rows));
 
-            vector<int> local_ids;
-            vector<vector<Point2f>> local_corners, local_rejected;
-            // auto f = [=local_corners, =local_rejected_loca_ids](const std::string& s ){return "Hello C++11 from " + s + ".";}
-            aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
-                                  detectorParams, local_rejected);
+              vector<int> local_ids;
+              vector<vector<Point2f>> local_corners, local_rejected;
 
-            if(local_ids.size() == 0) {
-              // Reset stuffs
-              next_state = 0;
-              break;
-            } else {
+              aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
+                                    detectorParams, local_rejected);
 
-              // Add bounding box adjustment to local corners
-              local_corners[0][0].x += start_x;
-              local_corners[0][0].y += start_y;
-              local_corners[0][1].x += start_x;
-              local_corners[0][1].y += start_y;
-              local_corners[0][2].x += start_x;
-              local_corners[0][2].y += start_y;
-              local_corners[0][3].x += start_x;
-              local_corners[0][3].y += start_y;
+              if(local_ids.size() == 0) {
+                // Reset stuffs
+                std::vector<Point2f> ret;
+                next_state = 0;
+                // break;
+                return std::make_pair(-1, ret);
+              } else {
 
-              // Make sure to add on the ID because the local_id will be 0
-              // return std::make_pair(local_ids[0]+it->first, local_corners[0])
-              ids.push_back(local_ids[0] + it->first);
-              corners.push_back(local_corners[0]);
+                // Add bounding box adjustment to local corners
+                local_corners[0][0].x += start_x;
+                local_corners[0][0].y += start_y;
+                local_corners[0][1].x += start_x;
+                local_corners[0][1].y += start_y;
+                local_corners[0][2].x += start_x;
+                local_corners[0][2].y += start_y;
+                local_corners[0][3].x += start_x;
+                local_corners[0][3].y += start_y;
+
+                // Make sure to add on the ID because the local_id will be 0
+                return std::make_pair(local_ids[0]+it->first, local_corners[0]);
+              }
+            };
+
+            futures.push_back(std::async(std::launch::async, f));
+
+          } else {
+              auto time_now = Time::now();
+              std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
+
+              double prev_x = it->second.x;
+              double prev_y = it->second.y;
+              double change = time_span.count()*0.1 + 0.04;
+              double x_max = prev_x + change;
+              double x_min = prev_x - change;
+              double y_max = prev_y + change;
+              double y_min = prev_y - change;
+
+              //Compute bounding boxes
+              std::vector<Point2f> rectangle_points;
+              std::vector<Point3f> rectangle_points_h;
+
+              rectangle_points.push_back(Point2f(x_min, y_max));
+              rectangle_points.push_back(Point2f(x_max, y_min));
+
+              convertPointsToHomogeneous(rectangle_points, rectangle_points_h);
+
+              //Go to image coordinates and plot rectangle
+              cv::transform(rectangle_points_h, rectangle_points_h, H_inv);
+              // Clear this to avoid bad results form reusing the variable.
+              rectangle_points.clear();
+              convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
+              rectangle(imageCopy, rectangle_points[0], rectangle_points[1],  Scalar(0, 255, 255));
+              /* Detect markers and estimate pose */
+
+              // Clamp to max width and height
+              int start_x = cv::min(cv::max(rectangle_points[0].x, 0.0f), 1280.0f);
+              int start_y = cv::min(cv::max(rectangle_points[0].y, 0.0f), 720.f);
+              int num_cols = cv::min(cv::max(rectangle_points[1].x, 0.0f), 1280.0f) - start_x;
+              int num_rows = cv::min(cv::max(rectangle_points[1].y, 0.0f), 720.0f) - start_y;
+
+              cv::Mat local_image = image(cv::Rect(start_x, start_y, num_cols, num_rows));
+
+              vector<int> local_ids;
+              vector<vector<Point2f>> local_corners, local_rejected;
+              // auto f = [=local_corners, =local_rejected_loca_ids](const std::string& s ){return "Hello C++11 from " + s + ".";}
+              aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
+                                    detectorParams, local_rejected);
+
+              // std::cout << "HI" << std::endl;
+
+              if(local_ids.size() == 0) {
+                // Reset stuffs
+                next_state = 0;
+                break;
+              } else {
+
+                // Add bounding box adjustment to local corners
+                local_corners[0][0].x += start_x;
+                local_corners[0][0].y += start_y;
+                local_corners[0][1].x += start_x;
+                local_corners[0][1].y += start_y;
+                local_corners[0][2].x += start_x;
+                local_corners[0][2].y += start_y;
+                local_corners[0][3].x += start_x;
+                local_corners[0][3].y += start_y;
+
+                // Make sure to add on the ID because the local_id will be 0
+                // return std::make_pair(local_ids[0]+it->first, local_corners[0])
+                ids.push_back(local_ids[0] + it->first);
+                corners.push_back(local_corners[0]);
+              }
+            }
+          }
+
+          if(async_detection) {
+            for(int i = 0; i < futures.size(); ++i) {
+              auto result = futures[i].get();
+
+              // ID will be -1 if it wasn't found
+              if(result.first > 0) {
+                // std::cout << result.first << std::endl;
+
+                ids.push_back(result.first);
+                corners.push_back(result.second);
+              } else {
+                // We didn't find one of the previously tracked IDs, so go back to
+                // the first state.
+                next_state = 0;
+              }
             }
           }
 
