@@ -345,6 +345,7 @@ namespace {
 	        "{dp       |       | File of marker detector parameters }"
           "{bb       | false | Whether to use bounding boxes }"
           "{ad       | false | Whether to use threading in detection }"
+          "{sd       | false | Whether to use single dictionaries in detection}"
 	        "{r        |       | show rejected candidates too }"
 			    "{h        | localhost | MQTT broker }"
 			    "{p        | 1883      | MQTT port }"
@@ -666,8 +667,6 @@ int main(int argc, char *argv[]) {
       return 0;
   }
 
-  bool async_detection = parser.get<bool>("ad");
-
 	/* Add corner refinement in markers */
 	//detectorParams->cornerRefinementMethod = 2;
 
@@ -697,6 +696,8 @@ int main(int argc, char *argv[]) {
 
   // Whether to use bounding boxes
   bool use_boxes = parser.get<bool>("bb");
+  bool async_detection = parser.get<bool>("ad");
+  bool use_single_dictionaries = parser.get<bool>("sd");
 
 	/* Initialize time stamps */
   lastVideoFrameWrite = Time::now();
@@ -792,7 +793,8 @@ int main(int argc, char *argv[]) {
 
           for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
 
-            auto f = [&current_time, &imageCopy, &single_dictionaries,
+            auto f = [use_single_dictionaries, &current_time, &imageCopy,
+                      &single_dictionaries, &dictionary,
                       &detectorParams, &next_state, &image, &H_inv, it] {
 
               auto time_now = Time::now();
@@ -858,8 +860,13 @@ int main(int argc, char *argv[]) {
               vector<int> local_ids;
               vector<vector<Point2f>> local_corners, local_rejected;
 
-              aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
-                                    detectorParams, local_rejected);
+              if(use_single_dictionaries) {
+                aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
+                                     detectorParams, local_rejected);
+              } else {
+                aruco::detectMarkers(local_image, dictionary, local_corners, local_ids,
+                                     detectorParams, local_rejected);
+              }
 
               if(local_ids.size() == 0) {
                 // Reset stuffs
