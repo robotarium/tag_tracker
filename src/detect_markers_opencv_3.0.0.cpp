@@ -887,7 +887,8 @@ int main(int argc, char *argv[]) {
                 local_corners[0][3].y += min_y;
 
                 // Make sure to add on the ID because the local_id will be 0
-                return std::make_pair(local_ids[0]+it->first, local_corners[0]);
+                int local_id = use_single_dictionaries ? it->first : 0;
+                return std::make_pair(local_ids[0]+local_id, local_corners[0]);
               }
             };
 
@@ -897,8 +898,17 @@ int main(int argc, char *argv[]) {
 
               auto result = f();
 
-              ids.push_back(result.first);
-              corners.push_back(result.second);
+              // ID will be -1 if it wasn't found
+              if(result.first > 0) {
+
+                ids.push_back(result.first);
+                corners.push_back(result.second);
+              } else {
+                // We didn't find one of the previously tracked IDs, so go back to
+                // the first state.
+
+                next_state = 0;
+              }
             }
           }
 
