@@ -14,11 +14,16 @@ The docker build should work on any **x87** system running Ubuntu **16.04** (or
 
 Download [docker](https://docs.docker.com/engine/installation/linux/docker-ce/ubuntu/)
 and install on your machine.  The convenience script option may be particularly
-useful.
+useful.  Rather than adding a repo, you can use 
+```bash 
+  curl -fsSL get.docker.com -o get-docker.sh
+  sudo sh get-docker.sh
+```
+which downloads a convenience script to install docker.
 
 Once docker is installed, build the tracker container.  
 ```bash
-  cd path_to_tracker/docker
+  cd path_to_tag_tracker/docker
   ./docker_build name_of_container
 ```
 For example,
