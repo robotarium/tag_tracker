@@ -54,9 +54,6 @@ the use of this software, even if advised of the possibility of such damage.
 /* For Rodrigues transformation */
 #include <opencv2/calib3d/calib3d.hpp>
 
-// /* Include Boost library */
-// #include <boost/filesystem.hpp>
-
 /* Include IO functionalities */
 #include <json.hpp>
 #include <iostream>

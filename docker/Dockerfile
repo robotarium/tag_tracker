@@ -49,8 +49,8 @@ RUN mkdir /opencv/build && cd /opencv/build \
 # Compile and install OpenCV
 RUN cd /opencv/build && make -j $(($(nproc) - 1)) && make install && ldconfig
 
-# general purpose stuffs
-RUN apt-get -y install vim
+# We need this for visualization
+RUN apt-get install -y libcanberra-gtk-module libcanberra-gtk3-module
 
 #Install JSON Libraries
 
@@ -74,11 +74,12 @@ RUN cd $PROGRAMDIR && \
     make -j $(($(nproc) - 1)) && \
     make install
 
-# We need this for visualization
-#RUN apt-get install -y libcanberra-gtk-module libcanberra-gtk3-module
+
+# general purpose stuffs
+RUN apt-get -y install vim
 
 # Add this line to prevent caching
-ENV updated-adds-on 06-21-2017-3
+ENV updated-adds-on 06-21-2017-4
 
 # Now that openCV is installed, download the tag tracker and compile it!
 RUN git clone https://github.com/robotarium/tag_tracker.git && \
