@@ -346,7 +346,8 @@ bool find_homography_to_reference_markers_image_plane(
             Mat::eye(Size(3,3), CV_32F),
             projMatrix
           );
-          
+
+          /* Store reference markers and world points for homography */
           for (int i = 0; i < reference_marker_ids.size(); i++){
             image_points.push_back(
               Point2f(
@@ -357,6 +358,7 @@ bool find_homography_to_reference_markers_image_plane(
             world_points.push_back(reference_markers_world_plane[i]);
           }
 
+          /* Find homography using the pre-specified points */
           H = findHomography(image_points, world_points);
 
      	    putText(img, "Reference markers", Point2f(img.cols*0.1, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
@@ -370,6 +372,7 @@ bool find_homography_to_reference_markers_image_plane(
         cv::aruco::drawDetectedMarkers(img, corners, ids);
       }
 
+      /* Display something on the image to indicate that we're searching for reference markers */
       putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
       putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
 
@@ -421,21 +424,17 @@ int main(int argc, char *argv[]) {
     in state 0.  If it doesn't see one of these markers, it goes back to state
     0 to look for it.
 
-  /* Variables declarations /*
-
 	/* Initialize command line parsing */
 	CommandLineParser parser(argc, argv, keys);
 	parser.about(about);
 
-  /* Set up MQTT client */
+  /* Set up MQTT client.  Make this a shared pointer so that we don't HAVE to use MQTT */
   std::shared_ptr<MQTTClient> m;
   if(parser.has("h")) {
     m = std::make_shared<MQTTClient>(parser.get<string>("h"), parser.get<int>("p"));
     // Start the MQTT client's internal threading
     m->start();
   }
-
-  /* End variables declarations /*
 
 	/* Error handling for missing command line parameters */
 	if(argc < 2) {
@@ -457,7 +456,10 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
+  /* Get marker length from arguments */
 	markerLength = parser.get<float>("l");
+
+  /* Check for input from video file, rather than camera */
   if(parser.has("v")) {
     video_file = parser.get<std::string>("v");
     /* Open camera input stream */
@@ -505,9 +507,13 @@ int main(int argc, char *argv[]) {
 	std::cout << "Image size: " << frameSize.width
 						<< " / " << frameSize.height << std::endl;
 
-  // Whether to use bounding boxes
+  /* Whether to use bounding boxes */
   bool use_boxes = parser.get<bool>("bb");
+
+  /* Whether to use threading */
   bool async_detection = parser.get<bool>("ad");
+
+  /* Use singleton dictionaries */
   bool use_single_dictionaries = parser.get<bool>("sd");
 
 	/* Set MQTT publishing topic */
@@ -542,23 +548,25 @@ int main(int argc, char *argv[]) {
   ))
     return 0;
 
-  // Calculate the inverse of the homography matrix
+  /* Pre-calculate the inverse of the homography matrix */
   Mat H_inv = H.inv();
 
+  /* Maps for robot poses and dictionaries for fast lookup */
   std::map<int, cv::Point2f> robot_poses;
   std::map<int, Ptr<aruco::Dictionary>> single_dictionaries;
-  // Cases
-  int state = 0; //0 -- look over whole image, 1 -- look over portions of image
+
+  /* State machine states.  There are just two.
+  0: Look over the whole image for markers
+  1: Only look in bounding boxes for images detected in state 0
+  */
+  int state = 0;
   int next_state = 0;
 
   auto current_time = Time::now();
 
-  /* --------------------------------------------
-   *                Main event loop
-   * -------------------------------------------- */
+  /* Main event loop */
   while(inputVideo.grab()) {
     /* Retrieve new frame from camera */
-
     Mat image, imageCopy;
     inputVideo.retrieve(image);
     /* Render results */
@@ -569,11 +577,9 @@ int main(int argc, char *argv[]) {
     vector<vector<Point2f>> corners, rejected;
 
     try {
-
       auto check_time = Time::now();
 
       switch(state) {
-
         /* Detect markers in entire timage and estimate pose */
         case 0:
           aruco::detectMarkers(image, dictionary, corners, ids,
@@ -586,7 +592,7 @@ int main(int argc, char *argv[]) {
 
         /* Use bounding boxes to update robot poses */
         case 1:
-
+          /* Prepare futures in case we're using threading */
           std::vector<std::future<std::pair<int, std::vector<Point2f>>>> futures;
 
           if(robot_poses.empty()) {
@@ -594,8 +600,7 @@ int main(int argc, char *argv[]) {
           }
 
           for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
-
-            // Make sure that we don't include reference markers in IDs
+            /* Make sure that we don't include reference markers in IDs */
             if(find(reference_marker_ids.begin(), reference_marker_ids.end(), it->first) != reference_marker_ids.end()) {
               continue;
             }
