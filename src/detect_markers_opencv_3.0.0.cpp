@@ -36,6 +36,7 @@ or tort (including negligence or otherwise) arising in any way out of
 the use of this software, even if advised of the possibility of such damage.
 */
 
+/* Include opencv libraries */
 #include <opencv2/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/core.hpp>
@@ -56,10 +57,13 @@ the use of this software, even if advised of the possibility of such damage.
 /* Include Boost library */
 #include <boost/filesystem.hpp>
 
+/* Include IO functionalities */
 #include <json.hpp>
 #include <iostream>
 #include <fstream>
 #include <mqttclient.hpp>
+
+/* Include threading for use in threaded detection */
 #include <future>
 
 /* Chrono typedefs */
@@ -74,21 +78,10 @@ using json = nlohmann::json;
 using namespace std;
 using namespace cv;
 
-struct MappingData {
-  cv::Mat homography;
-  cv::Mat inv_homography;
-  cv::Mat camera_matrix;
-  cv::Mat dist_coeffs;
-  cv::Mat proj_matrix;
-};
-
 /* Forward declarations */
-const std::string currentDateTime();
-bool  getJSONString(auto data, std::string fieldName, std::string* output);
-bool  getJSONInt(auto data, std::string fieldName, int* output);
+
 static void onMouse(int event, int x, int y, int, void*);
 
-// homography stuffs -----------------------------------------------------------
 bool find_homography_to_reference_markers_image_plane(
   VideoCapture& cam,
   Ptr<aruco::Dictionary> dictionary,
@@ -97,56 +90,37 @@ bool find_homography_to_reference_markers_image_plane(
   const vector< Point2f > reference_markers_image_plane_WORLD_PLANE,
   Mat& H);
 
-// Paul homography stuffs
-Point2f map_point_from_world_to_image(Point2f point, MappingData& mapping_data);
-
-cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in);
-cv::Point2f mat_point_to_homogeneous_point2f(cv::Mat in);
-cv::Mat2f point2f_to_mat2f(cv::Point2f in);
-cv::Point2f mat2f_to_point2f(cv::Mat2f in);
-Point2f find_marker_center(vector<Point2f> corners);
-Point2f map_marker_from_image_to_world(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
-Point2f map_point_from_image_to_world(Point2f marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
-float get_marker_orientation(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
-Point3f get_robot_pose(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix);
-void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > reference_marker_ids);
 bool readReferenceMarkersSpecs(string reference_marker_setup_file, vector<int>& referenceMarkersIDs, vector<Point2f>& referenceMarkersPositions);
-// -----------------------------------------------------------------------------
+
+/* End forward declarations */
 
 /* Global variables */
 json powerData;
 json status_data;
-std::map<std::string, vector<double> > robotImagePosition;
-std::map<std::string, bool > closeToGritsbot, clickedOnGritsbot;
+std::map<std::string, vector<double>> robotImagePosition;
+std::map<std::string, bool> closeToGritsbot, clickedOnGritsbot;
 std::ostringstream ss;
 
 /* Tracker parameters */
-int   dictionaryId;
-bool  showRejected;
-bool  estimatePose;
+int dictionaryId;
+bool showRejected;
+bool estimatePose;
 float markerLength;
-int   camId;
-Mat   camMatrix, distCoeffs, projMatrix;
+int camId;
+std::string video_file;
+Mat camMatrix, distCoeffs, projMatrix;
 
 /* OpenCV video input and output devices */
-VideoCapture  inputVideo;
-
-/* Time stamps */
-auto    lastVideoFrameWrite = Time::now();
-auto    lastImageFrameWrite = Time::now();
-double  totalTime = 0.0;
-int     totalIterations = 0;
-double  tick = (double) getTickCount();
+VideoCapture inputVideo;
 
 /* Framesize */
-int       frameWidth  = 1280;
-int       frameHeight = 720;
-cv::Size  frameSize   = cv::Size(frameWidth, frameHeight);
+int frameWidth  = 1280;
+int frameHeight = 720;
+cv::Size frameSize = cv::Size(frameWidth, frameHeight);
 
-/**
- */
+/* Function that generates a dictionary with a single marker from a base dictionary */
 Ptr<aruco::Dictionary> generate_single_dictionary(int marker, int marker_size,
-                                           const Ptr<aruco::Dictionary> &baseDictionary) {
+                                           const Ptr<aruco::Dictionary> &base_dictionary) {
 
     Ptr<aruco::Dictionary> out = makePtr<aruco::Dictionary>();
     out->markerSize = marker_size;
@@ -158,10 +132,10 @@ Ptr<aruco::Dictionary> generate_single_dictionary(int marker, int marker_size,
     int C = (int)std::floor(float(marker_size * marker_size) / 4.f);
     int tau = 2 * (int)std::floor(float(C) * 4.f / 3.f);
 
-    // if baseDictionary is provided, calculate its intermarker distance
-    if(baseDictionary->bytesList.rows > 0) {
-        CV_Assert(baseDictionary->markerSize == marker_size);
-        out->bytesList = baseDictionary->bytesList.rowRange(marker, marker+1).clone();
+    // if base_dictionary is provided, calculate its intermarker distance
+    if(base_dictionary->bytesList.rows > 0) {
+        CV_Assert(base_dictionary->markerSize == marker_size);
+        out->bytesList = base_dictionary->bytesList.rowRange(marker, marker+1).clone();
     }
 
     // update the maximum number of correction bits for the generated dictionary
@@ -227,68 +201,6 @@ void powerDataCallback(std::string topic, std::string message) {
 /* Cast function to standard function pointer */
 std::function<void(std::string, std::string)> stdf_powerDataCallback = &powerDataCallback;
 
-/* -------------------------------------
- *		  JSON Utility functions
- * ------------------------------------- */
-bool getJSONString(auto data, std::string fieldName, std::string* output) {
-  if (data.find(fieldName) != data.end()) {
-    if(data[fieldName].is_string()) {
-      *output = data[fieldName];
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
-}
-
-bool getJSONInt(auto data, std::string fieldName, int* output) {
-  if (data.find(fieldName) != data.end()) {
-    if(data[fieldName].is_number()) {
-      *output = data[fieldName];
-      return true;
-    } else {
-      return false;
-    }
-  } else {
-    return false;
-  }
-}
-
-/* -------------------------------------
- *		Time utility functions
- * ------------------------------------- */
-/* Get current date/time, format is YYYY-MM-DD.HH:mm:ss */
-const std::string currentDateTime() {
-  time_t     now = time(0);
-  struct tm  tstruct;
-  char       buf[80];
-  tstruct = *localtime(&now);
-
-  /* Visit http://en.cppreference.com/w/cpp/chrono/c/strftime
-   * for more information about date/time format
-   * strftime(buf, sizeof(buf), "%Y-%m-%d.%X", &tstruct);
-   */
-  strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tstruct);
-
-  return buf;
-}
-
-void printDetectionRate() {
-  double currentTime = (double) (getTickCount() - tick) / getTickFrequency();
-  totalTime += currentTime;
-  totalIterations++;
-
-  if(totalIterations % 30 == 0) {
-    std::cout << "Detection Time = " << currentTime * 1000 << " ms "
-              << "(Mean = " << 1000 * totalTime / double(totalIterations)
-              << " ms)" << std::endl;
-  }
-
-  tick = (double) getTickCount();
-}
-
 /* --------------------------------------------------
  *		Camera/tracker configuration functions
  * -------------------------------------------------- */
@@ -340,6 +252,7 @@ namespace {
 	        "DICT_6X6_50=8, DICT_6X6_100=9, DICT_6X6_250=10, DICT_6X6_1000=11, DICT_7X7_50=12,"
 	        "DICT_7X7_100=13, DICT_7X7_250=14, DICT_7X7_1000=15, DICT_ARUCO_ORIGINAL = 16}"
 	        "{ci       | 0     | Camera id if input doesnt come from video (-v) }"
+	        "{v         |      | Video file (takes precedence over ci) }"
 	        "{c        |       | Camera intrinsic parameters. Needed for camera pose }"
 	        "{l        | 0.1   | Marker side length (in meters). Needed for correct scale in camera pose }"
 	        "{dp       |       | File of marker detector parameters }"
@@ -347,7 +260,7 @@ namespace {
           "{ad       | false | Whether to use threading in detection }"
           "{sd       | false | Whether to use single dictionaries in detection}"
 	        "{r        |       | show rejected candidates too }"
-			    "{h        | localhost | MQTT broker }"
+			    "{h        | | MQTT broker }"
 			    "{p        | 1883      | MQTT port }"
 			    "{s        | 1.0  | frame scale: if specified, frame sizes are multiplied by s }"
 			    "{rm        |  | reference markers: reference markers yml specification file }";
@@ -441,16 +354,13 @@ bool find_homography_to_reference_markers_image_plane(
             );
             world_points.push_back(reference_markers_world_plane[i]);
           }
-          //cout << "Computing homography between the image point:\n" << image_points << "\nand the world points:\n" << world_points << endl << "...";
 
           H = findHomography(image_points, world_points);
 
-          //cout << "homography:\n" << H << endl;
-
-     	  putText(img, "Reference markers", Point2f(img.cols*0.1, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
-	      putText(img, "found", Point2f(img.cols*0.35, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
-	      imshow("out", img);
-		  waitKey(333);
+     	    putText(img, "Reference markers", Point2f(img.cols*0.1, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+          putText(img, "found", Point2f(img.cols*0.35, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+          imshow("out", img);
+	        waitKey(333);
 
           return true;
         }
@@ -458,15 +368,15 @@ bool find_homography_to_reference_markers_image_plane(
         cv::aruco::drawDetectedMarkers(img, corners, ids);
       }
 
-	  putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
-	  putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
-	  for (int i = 0; i < reference_marker_ids.size(); i++){
-          ss.str("");
+      putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+      putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+      for (int i = 0; i < reference_marker_ids.size(); i++) {
+        ss.str("");
 	      ss.clear();
-		  ss << reference_marker_ids[i];
-		  const String idStr = ss.str();
-		  putText(img, idStr, Point2f(img.cols*(0.05+0.8*int(i<=1)), img.rows*(0.15+0.8*int(i<1||i>2))), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
-	  }
+	      ss << reference_marker_ids[i];
+	      const String idStr = ss.str();
+        putText(img, idStr, Point2f(img.cols*(0.05+0.8*int(i<=1)), img.rows*(0.15+0.8*int(i<1||i>2))), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+      }
 
       imshow("out", img);
 
@@ -476,136 +386,11 @@ bool find_homography_to_reference_markers_image_plane(
     } catch (int e) {
       // TODO: Exception handling
     }
-
   }
-
   return false;
 }
 
-/* Takes a cv::Point2f and returns a cv::Mat with a one on the end */
-cv::Mat point2f_to_homogeneous_mat_point(cv::Point2f in)
-{
-    cv::Mat out(3,1, CV_64FC1);
-    out.at<double>(0,0) = in.x;
-    out.at<double>(1,0) = in.y;
-    out.at<double>(2,0) = 1.0;
-    return out;
-}
-
-cv::Point2f mat_point_to_homogeneous_point2f(cv::Mat in)
-{
-    cv::Point2f out;
-    out.x = in.at<double>(0,0) / in.at<double>(2,0);
-    out.y = in.at<double>(1,0) / in.at<double>(2,0);
-    return out;
-}
-
-cv::Mat2f point2f_to_mat2f(cv::Point2f in)
-{
-    cv::Mat2f out(1, 1, CV_32F);
-    out[0][0][0] = in.x;
-    out[0][0][1] = in.y;
-    return out;
-}
-
-cv::Point2f mat2f_to_point2f(cv::Mat2f in)
-{
-    cv::Point2f out;
-    out.x = in[0][0][0];
-    out.y = in[0][0][1];
-    return out;
-}
-
-Point2f find_marker_center(vector< Point2f > corners) {
-  return Point2f(
-    0.25*(corners[0].x+corners[1].x+corners[2].x+corners[3].x),
-    0.25*(corners[0].y+corners[1].y+corners[2].y+corners[3].y)
-  );
-}
-
-Point2f map_point_from_world_to_image(Point2f point, MappingData& mapping_data) {
-  /*
-  Assume that the points have already been undistorted
-  */
-
-  Mat homog_world_point, homog_image_point;
-
-  homog_world_point = point2f_to_homogeneous_mat_point(point);
-  homog_image_point = mapping_data.inv_homography*homog_world_point;
-
-  // Takes a 3x1 cv::Mat to a point in pixels (handles the scaling)
-  return mat_point_to_homogeneous_point2f(homog_image_point);
-}
-
-//TODO: Change this function so that we don't have to find the center here.  That can be
-// easily done in the main loop.
-Point2f map_marker_from_image_to_world(vector<Point2f> marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
-
-  Point2f marker_center;
-  marker_center = find_marker_center(marker);
-
-  return map_point_from_image_to_world(marker_center, H, camMatrix, distCoeffs, projMatrix);
-}
-
-Point2f map_point_from_image_to_world(Point2f point, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
-
-  Mat homog_world_point, homog_image_point;
-  // Mat2f p_toundistort = Mat2f::zeros(1, 1),
-  //       p_undistorted = Mat2f::zeros(1, 1);
-  //
-  // p_toundistort = point2f_to_mat2f(point);
-  //
-  // undistortPoints(
-  //   p_toundistort,
-  //   p_undistorted,
-  //   camMatrix,
-  //   distCoeffs,
-  //   Mat::eye(Size(3,3), CV_32F),
-  //   projMatrix
-  // );
-
-  //mat2f_to_point2f(p_undistorted);
-
-  homog_image_point = point2f_to_homogeneous_mat_point(point);
-
-  homog_world_point = H*homog_image_point;
-
-  return mat_point_to_homogeneous_point2f(homog_world_point);
-}
-
-float get_marker_orientation(vector< Point2f > marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix){
-  vector<Point2f> center_world;
-  for (int i = 0; i < 4; i++) {
-    center_world.push_back(map_point_from_image_to_world(marker[i], H, camMatrix, distCoeffs, projMatrix));
-  }
-  Point2f forward_vector = (center_world[1]+center_world[2]-center_world[0]-center_world[3])/2;
-  return atan2(forward_vector.y, forward_vector.x);
-}
-
-Point3f get_robot_pose(vector<Point2f> marker, Mat H, Mat camMatrix, Mat distCoeffs, Mat projMatrix) {
-  Point2f position = map_marker_from_image_to_world(marker, H, camMatrix, distCoeffs, projMatrix);
-  float orientation = get_marker_orientation(marker, H, camMatrix, distCoeffs, projMatrix);
-  return Point3f(position.x, position.y, orientation);
-}
-
-void draw_xy_axes(Mat& img, vector< vector< Point2f > >markers, vector<int> ids, const vector< int > reference_marker_ids) {
-  Point2f pt1, pt2;
-  for (int i = 0; i < markers.size(); i++) {
-    if (find(reference_marker_ids.begin(), reference_marker_ids.end(), ids[i]) == reference_marker_ids.end()) {
-      pt1 = find_marker_center(markers[i]);
-      pt2 = (markers[i][1] + markers[i][2]) / 2;
-      pt2 = pt1 + 2*(pt2-pt1);
-      line(img, pt1, pt2, Scalar(0,127,255), 2);
-    } else {
-      Mat vertices = (Mat_<int>(4,2) << markers[i][0].x, markers[i][0].y,
-                                        markers[i][1].x, markers[i][1].y,
-                                        markers[i][2].x, markers[i][2].y,
-                                        markers[i][3].x, markers[i][3].y);
-      fillConvexPoly(img, vertices, Scalar(0, 127, 255));
-    }
-  }
-}
-
+/* Reads in reference marker IDs and locations from a .yml file */
 bool readReferenceMarkersSpecs(string reference_marker_setup_file, vector<int>& referenceMarkersIDs, vector<Point2f>& referenceMarkersPositions) {
     FileStorage fs(reference_marker_setup_file, FileStorage::READ);
     if(!fs.isOpened())
@@ -624,9 +409,30 @@ bool readReferenceMarkersSpecs(string reference_marker_setup_file, vector<int>& 
  *		        MAIN FUNCTION
  * -------------------------------------- */
 int main(int argc, char *argv[]) {
+
+  /* The overall detection algorithm switches between two states.
+
+    0: The algorithm scans the whole image for markers, storing ones that it finds.
+
+    1: The algorithm looks in a bounding box only for markers that it detected
+    in state 0.  If it doesn't see one of these markers, it goes back to state
+    0 to look for it.
+
+  /* Variables declarations /*
+
 	/* Initialize command line parsing */
 	CommandLineParser parser(argc, argv, keys);
 	parser.about(about);
+
+  /* Set up MQTT client */
+  std::shared_ptr<MQTTClient> m;
+  if(parser.has("h")) {
+    m = std::make_shared<MQTTClient>(parser.get<string>("h"), parser.get<int>("p"));
+    // Start the MQTT client's internal threading
+    m->start();
+  }
+
+  /* End variables declarations /*
 
 	/* Error handling for missing command line parameters */
 	if(argc < 2) {
@@ -649,7 +455,14 @@ int main(int argc, char *argv[]) {
   }
 
 	markerLength = parser.get<float>("l");
-	camId = parser.get<int>("ci");
+  if(parser.has("v")) {
+    video_file = parser.get<std::string>("v");
+    /* Open camera input stream */
+    inputVideo.open(video_file);
+  } else {
+    camId = parser.get<int>("ci");
+    inputVideo.open(camId);
+  }
 
 	/* Initialize detector parameters from file */
 	Ptr<aruco::DetectorParameters> detectorParams = aruco::DetectorParameters::create();
@@ -660,15 +473,13 @@ int main(int argc, char *argv[]) {
 		}
 	}
 
-  vector<int> reference_marker_ids; // = {22, 23, 24, 25};
+  /* Get reference marker ids from given reference marker files */
+  vector<int> reference_marker_ids;
   vector<Point2f> reference_markers_world_plane;
   if (!readReferenceMarkersSpecs(parser.get<string>("rm"), reference_marker_ids, reference_markers_world_plane)) {
       cerr << "Invalid reference markers file" << endl;
       return 0;
   }
-
-	/* Add corner refinement in markers */
-	//detectorParams->cornerRefinementMethod = 2;
 
 	/* Instantiate dictionary containing tags */
 	Ptr<aruco::Dictionary> dictionary =
@@ -679,10 +490,7 @@ int main(int argc, char *argv[]) {
 		return 0;
 	}
 
-	/* Open camera input stream */
-	inputVideo.open(camId);
-
-    /* Set resolution */
+  /* Set resolution */
 	if (parser.has("s")) {
 		frameWidth = int( float(frameWidth) * parser.get<float>("s") );
 		frameHeight = int( float(frameHeight) * parser.get<float>("s") );
@@ -699,28 +507,21 @@ int main(int argc, char *argv[]) {
   bool async_detection = parser.get<bool>("ad");
   bool use_single_dictionaries = parser.get<bool>("sd");
 
-	/* Initialize time stamps */
-  lastVideoFrameWrite = Time::now();
-  lastImageFrameWrite = Time::now();
-
-	/* Set up MQTT client */
-	MQTTClient m(parser.get<string>("h"), parser.get<int>("p"));
-  // Start the MQTT client's internal threading
-	m.start();
-
 	/* Set MQTT publishing topic */
 	std::string main_publish_channel = "overhead_tracker/all_robot_pose_data";
 
 	/* Subscribe to power data channels */
-	for (int index = 0; index < 50; index++) {
-		/* Create topic name string */
-		std::string topicName = std::to_string(index) + "/power_data";
+  if(parser.has("h")) {
+  	for (int index = 0; index < 50; index++) {
+  		/* Create topic name string */
+  		std::string topicName = std::to_string(index) + "/power_data";
 
-		/* Subscribe to MQTT channel */
-		m.subscribe(topicName, stdf_powerDataCallback);
-		//std::cout << "Subscribed to topic: " << topicName  << std::endl;
-	}
+  		/* Subscribe to MQTT channel */
+  		m->subscribe(topicName, stdf_powerDataCallback);
+  	}
+  }
 
+  /* Create a named output window for display purposes */
   namedWindow("out", 1);
   setMouseCallback("out", onMouse, 0);
 
@@ -793,6 +594,11 @@ int main(int argc, char *argv[]) {
 
           for(auto it = robot_poses.begin(); it != robot_poses.end(); it++) {
 
+            // Make sure that we don't include reference markers in IDs
+            if(find(reference_marker_ids.begin(), reference_marker_ids.end(), it->first) != reference_marker_ids.end()) {
+              continue;
+            }
+
             auto f = [use_single_dictionaries, &current_time, &imageCopy,
                       &single_dictionaries, &dictionary,
                       &detectorParams, &next_state, &image, &H_inv, it] {
@@ -800,6 +606,7 @@ int main(int argc, char *argv[]) {
               auto time_now = Time::now();
               std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
 
+              /* Update bounding box coordinates based on previously recorded position */
               double prev_x = it->second.x;
               double prev_y = it->second.y;
               double change = time_span.count()*0.1 + 0.04;
@@ -808,10 +615,11 @@ int main(int argc, char *argv[]) {
               double y_max = prev_y + change;
               double y_min = prev_y - change;
 
-              //Compute bounding boxes
+              /* Vectors of points for the bounding boxes in local and homogeneous coordinates */
               std::vector<Point2f> rectangle_points;
               std::vector<Point3f> rectangle_points_h;
 
+              /* Store the corners of the rectangles (plus the center for convenience) */
               rectangle_points.push_back(Point2f(x_min, y_max)); // Upper left
               rectangle_points.push_back(Point2f(x_min, y_min)); // Lower left
               rectangle_points.push_back(Point2f(x_max, y_min)); // Lower right
@@ -820,63 +628,67 @@ int main(int argc, char *argv[]) {
 
               convertPointsToHomogeneous(rectangle_points, rectangle_points_h);
 
-              //Go to image coordinates and plot rectangle
+              /* Use the reverse homography to map from homogeneous world to homogeneous image coordinates */
               cv::transform(rectangle_points_h, rectangle_points_h, H_inv);
-              // Clear this to avoid bad results form reusing the variable.
+              /* Clear this to avoid bad results form reusing the variable */
               rectangle_points.clear();
               convertPointsFromHomogeneous(rectangle_points_h, rectangle_points);
 
+              /* Holds clamped x and y values from image coordinate.  The bounding box is formed from
+              these values shortly */
               std::vector<double> xs;
               std::vector<double> ys;
 
-              // Clamp x elements to frame
+              /* Clamp x elements to frame */
               std::transform(rectangle_points.begin(), rectangle_points.end(), std::back_inserter(xs),
               [](const cv::Point2f& point) {
                 return std::min(std::forward<double>(std::max(point.x, 0.0f)), (double) frameWidth);
               });
 
-              // Clamp y elements to frame
+              /* Clamp y elements to frame */
               std::transform(rectangle_points.begin(), rectangle_points.end(), std::back_inserter(ys),
               [](const cv::Point2f& point) {
                 return std::min(std::forward<double>(std::max(point.y, 0.0f)), (double) frameHeight);
               });
 
-              // Cast to int because we're using pixles
+              /* Cast to int because we're using pixles */
               int max_x = *std::max_element(xs.begin(), xs.end());
               int max_y = *std::max_element(ys.begin(), ys.end());
               int min_x = *std::min_element(xs.begin(), xs.end());
               int min_y = *std::min_element(ys.begin(), ys.end());
 
-              // line(imageCopy, rectangle_points[0], rectangle_points[1], Scalar(0, 255, 255));
-              // line(imageCopy, rectangle_points[1], rectangle_points[2], Scalar(0, 255, 255));
-              // line(imageCopy, rectangle_points[2], rectangle_points[3], Scalar(0, 255, 255));
-              // line(imageCopy, rectangle_points[3], rectangle_points[0], Scalar(0, 255, 255));
-              // line(imageCopy, rectangle_points[0], rectangle_points[4], Scalar(0, 255, 255));
-
+              /* Draw rectangle around the area in which we're looking */
               rectangle(imageCopy, Point2f(min_x, min_y), Point2f(max_x, max_y),  Scalar(0, 255, 255));
-              /* Detect markers and estimate pose */
+
+              /* Detect markers and estimate pose in the bounding box */
               cv::Mat local_image = image(cv::Rect(min_x, min_y, max_x-min_x, max_y-min_y));
 
+              /* Prepare variables for detection in bounding box coordinates */
               vector<int> local_ids;
               vector<vector<Point2f>> local_corners, local_rejected;
 
+              /* Whether to use single dictionaries */
               if(use_single_dictionaries) {
+                /* Look for just a single marker in the bounding box */
                 aruco::detectMarkers(local_image, single_dictionaries[it->first], local_corners, local_ids,
                                      detectorParams, local_rejected);
               } else {
+                /* Look for all the markers in the bounding box */
                 aruco::detectMarkers(local_image, dictionary, local_corners, local_ids,
                                      detectorParams, local_rejected);
               }
 
+              /* If we didn't find anything locally */
               if(local_ids.size() == 0) {
-                // Reset stuffs
+                /* Go back to state 0 to search for markers */
                 std::vector<Point2f> ret;
                 next_state = 0;
-                // break;
+
+                /* Return a -1 as an ID so that we know something weird happened */
                 return std::make_pair(-1, ret);
               } else {
 
-                // Add bounding box adjustment to local corners
+                /* Shift bounding box coordinates to world coordinates */
                 local_corners[0][0].x += min_x;
                 local_corners[0][0].y += min_y;
                 local_corners[0][1].x += min_x;
@@ -886,59 +698,76 @@ int main(int argc, char *argv[]) {
                 local_corners[0][3].x += min_x;
                 local_corners[0][3].y += min_y;
 
-                // Make sure to add on the ID because the local_id will be 0
+                /* If using single eMake sure to add on the ID because the
+                local_id will be 0 */
                 int local_id = use_single_dictionaries ? it->first : 0;
                 return std::make_pair(local_ids[0]+local_id, local_corners[0]);
               }
             };
 
+            /* If we're using threading, spin up the detection in another thread */
             if(async_detection) {
               futures.push_back(std::async(std::launch::async, f));
             } else {
 
               auto result = f();
 
-              // ID will be -1 if it wasn't found
+              /* ID will be -1 if it wasn't found */
               if(result.first > 0) {
 
+                /* Push back the marker that we found */
                 ids.push_back(result.first);
                 corners.push_back(result.second);
               } else {
-                // We didn't find one of the previously tracked IDs, so go back to
-                // the first state.
+                /* We didn't find one of the previously tracked IDs, so go back to
+                the first state we can clear these variables because no threads
+                are using them in the background. */
 
+                robot_poses.clear();
+                single_dictionaries.clear();
                 next_state = 0;
               }
             }
           }
 
-          // Get results from async futures that we spun up earlier
+          /* If async is enabled, get results from async futures that we spun up earlier */
+          bool clear_data = false;
           if(async_detection) {
             for(int i = 0; i < futures.size(); ++i) {
               auto result = futures[i].get();
 
-              // ID will be -1 if it wasn't found
+              /* ID will be -1 if it wasn't found */
               if(result.first > 0) {
 
                 ids.push_back(result.first);
                 corners.push_back(result.second);
               } else {
-                // We didn't find one of the previously tracked IDs, so go back to
-                // the first state.
+                /* We didn't find one of the previously tracked IDs, so go back to
+                 the first state and set boolean to clear data */
 
-                next_state = 0;
+                 clear_data = true;
+                 next_state = 0;
               }
+            }
+
+            /* Wait until the end to clear data to not corrupt any running
+            threads */
+            if(clear_data) {
+
+              robot_poses.clear();
+              single_dictionaries.clear();
             }
           }
 
           break;
       }
 
+      /* If we foudn any IDs, render them on the screen */
       if(ids.size() > 0) {
-        //aruco::drawDetectedMarkers(imageCopy, corners, ids);
-        //draw_xy_axes(imageCopy, corners, ids, reference_marker_ids);
+        aruco::drawDetectedMarkers(imageCopy, corners, ids);
       }
 
+      /* Update and display detection time */
       auto check_time_end = Time::now();
       std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(check_time_end - check_time);
       ss.str("");
@@ -949,26 +778,30 @@ int main(int argc, char *argv[]) {
 
       if(ids.size() > 0) {
 
-        /* Create MQTT message */
+        /* Create JSON message to eventually send over MQTT */
         json message = {};
 
-        /* Populate msg with data */
+        /* Calculate robot poses and populate JSON message with data */
         for(unsigned int i = 0; i < ids.size(); i++) {
 
-          // Undistort all the points up front
-
+          /* Variables to hold homogeneous and eventual world (in meters) coordinates */
           std::vector<cv::Point3f> homogeneous_points;
           std::vector<Point2f> world_points;
 
+          /* Use homography to convert image to world coordinates (in meters) */
           convertPointsToHomogeneous(corners[i], homogeneous_points);
           cv::transform(homogeneous_points, homogeneous_points, H);
           convertPointsFromHomogeneous(homogeneous_points, world_points);
 
+          /* Find the orientation of the robot from the forward vector */
           Point2f forward_vector = (world_points[1]+world_points[2]-world_points[0]-world_points[3])/2;
           double orientation = atan2(forward_vector.y, forward_vector.x);
+
+          /* Find the (x, y) pose of the robot by taking the average of the 4 marker corners */
           double x = 0.25*(world_points[0].x + world_points[1].x + world_points[2].x + world_points[3].x);
           double y = 0.25*(world_points[0].y + world_points[1].y + world_points[2].y + world_points[3].y);
 
+          /* Convert ID to string for use in JSON message */
           std::string id = std::to_string(ids[i]);
 
           // Make sure that we don't include reference markers in IDs
@@ -976,21 +809,20 @@ int main(int argc, char *argv[]) {
             continue;
           }
 
-          // This we should really only have to do if we're in this state...
+          /* Only store new dictionaries if we're looking for markers */
           if(state == 0) {
             single_dictionaries[ids[i]] = generate_single_dictionary(ids[i], 4, dictionary);
           }
 
-          // This we need to do all the time to update the bounding boxes
+          /* Update the previous robot pose for use with the bounding boxes */
           robot_poses[ids[i]] = Point2f(x, y);
 
           /* Add pose to msg */
           message[id]["x"] = x;
-          /* Flip y-axis to make the coordinate system right-handed */
           message[id]["y"] = y;
-          // Add rotatioin to message
           message[id]["theta"] = orientation;
 
+          /* Add total detection time to message */
           message[id]["total_time"] = time_span.count();
 
           /* Add battery voltage data if available, or -1 otherwise */
@@ -1000,7 +832,7 @@ int main(int argc, char *argv[]) {
             message[id]["powerData"] = -1;
           }
 
-          /* Add battery voltage data if available, or -1 otherwise */
+          /* Add charging status data if available, or -1 otherwise */
           if(status_data.find(id) != status_data.end()) {
             message[id]["charging"] = status_data[id];
           } else {
@@ -1049,12 +881,13 @@ int main(int argc, char *argv[]) {
         std::string s = message.dump();
 
         /* Publish MQTT message */
-        m.async_publish(main_publish_channel, s);
+        if(parser.has("h")) {
+          m->async_publish(main_publish_channel, s);
+        }
       }
 
+      /* Section to display and update loop time */
       auto time_now = Time::now();
-      // std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
-      // std::cout << time_span.count() << std::endl;
       std::chrono::duration<double> time_span_loop = std::chrono::duration_cast<std::chrono::duration<double>>(time_now - current_time);
       ss.str("");
       ss.clear();
@@ -1064,6 +897,7 @@ int main(int argc, char *argv[]) {
 
       current_time = time_now;
 
+      /* Functionality for drawing rejected markers on output image */
       if(showRejected && rejected.size() > 0) {
         aruco::drawDetectedMarkers(imageCopy, rejected, noArray(),
                                     Scalar(100, 0, 255));
@@ -1072,27 +906,25 @@ int main(int argc, char *argv[]) {
       /* Show rendered image on screen */
       imshow("out", imageCopy);
 
+      /* If escapse is pressed, exit the loop */
       char key = (char) waitKey(1);
       if(key == 27) {
         break;
       }
 
-      // If we're pressing space...
+      /* If we're pressing space detect all markers */
       if(key == 32) {
         single_dictionaries.clear();
         robot_poses.clear();
         next_state = 0;
       }
 
-      // Go to next state
+      /* Go to the chosen next state at the end of the main loop */
       state = next_state;
 
     } catch (int e) {
-      // TODO: Exception handling
+      std::cout << "Encountered an exception" << std::endl;
     }
-
-    /* Debug output if desired */
-    //printDetectionRate();
   }
 
   /* Close capture device */
