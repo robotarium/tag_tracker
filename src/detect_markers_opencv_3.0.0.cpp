@@ -54,8 +54,8 @@ the use of this software, even if advised of the possibility of such damage.
 /* For Rodrigues transformation */
 #include <opencv2/calib3d/calib3d.hpp>
 
-/* Include Boost library */
-#include <boost/filesystem.hpp>
+// /* Include Boost library */
+// #include <boost/filesystem.hpp>
 
 /* Include IO functionalities */
 #include <json.hpp>
@@ -329,7 +329,7 @@ bool find_homography_to_reference_markers_image_plane(
         }
 
         if (reference_markers_image_plane.size() == reference_marker_ids.size()){
-          //cout << "found them" << endl;
+
           vector< Point2f > image_points, world_points;
           for (int i = 0; i < reference_marker_ids.size(); i++) {
             reference_markers_image_plane_toundistort[i][0][0] = 0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x);
@@ -370,6 +370,7 @@ bool find_homography_to_reference_markers_image_plane(
 
       putText(img, "Searching for", Point2f(img.cols*0.2, img.rows*0.4), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
       putText(img, "reference markers", Point2f(img.cols*0.1, img.rows*0.6), FONT_HERSHEY_COMPLEX, int(3*float(frameWidth)/1280), Scalar(0, 127, 255), 2);
+
       for (int i = 0; i < reference_marker_ids.size(); i++) {
         ss.str("");
 	      ss.clear();
@@ -567,14 +568,11 @@ int main(int argc, char *argv[]) {
 
     try {
 
-      // TODO: Do this with previous poses instead of current
-
       auto check_time = Time::now();
-      //std::cout << "STATE: " << state << std::endl;
 
       switch(state) {
 
-        /* Detect markers and estimate pose */
+        /* Detect markers in entire timage and estimate pose */
         case 0:
           aruco::detectMarkers(image, dictionary, corners, ids,
                               detectorParams, rejected);
@@ -584,6 +582,7 @@ int main(int argc, char *argv[]) {
           }
           break;
 
+        /* Use bounding boxes to update robot poses */
         case 1:
 
           std::vector<std::future<std::pair<int, std::vector<Point2f>>>> futures;
@@ -777,13 +776,11 @@ int main(int argc, char *argv[]) {
       putText(imageCopy, time_str, Point(20, 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
 
       if(ids.size() > 0) {
-
         /* Create JSON message to eventually send over MQTT */
         json message = {};
 
         /* Calculate robot poses and populate JSON message with data */
         for(unsigned int i = 0; i < ids.size(); i++) {
-
           /* Variables to hold homogeneous and eventual world (in meters) coordinates */
           std::vector<cv::Point3f> homogeneous_points;
           std::vector<Point2f> world_points;

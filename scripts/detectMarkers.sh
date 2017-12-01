@@ -12,20 +12,4 @@
 # - rM 		flag that determines whether markers are rendered into output video
 # - m		use metric coordinates in output messages (versus pixel coordinates)
 
-# ======================
-# OpenCV 2.4.0 and lower
-# ======================
-#../build/detectMarkers -d 0 -ci 0 -c ../data/cameraCalibration.yml -l 0.036 -vo
-
-# =======================
-# OpenCV 3.0.0 and higher
-# =======================
-#../build/detectMarkers -d=0 -ci=0 -c=../data/cameraCalibration.yml -l=0.036 -m
-
-# =================================
-# OpenCV 3.0.0 with video recording
-# =================================
-#../build/detectMarkers -d=0 -ci=0 -c=../data/cameraCalibration.yml -l=0.036 -m --vo
-#../build/detectMarkers -d=0 -ci=0 -c=../data/cameraCalibration.yml -l=0.036 -m
-../build/detectMarkers -m -sd=true -ad=true -bb=true -s=1.0 -h=192.168.1.2 -p=1884 -d=0 -ci=0 -v=/home/robotarium/Desktop/out.mp4 -c=../data/camera.yml -l=0.026 -dp=../detector_params.yml -rm=../data/reference_markers_setup.yml
-
+../build/detectMarkers -m -sd=true -ad=true -bb=true -s=1.0 -p=1884 -d=0 -ci=0 -v=/home/robotarium/Desktop/out.mp4 -c=../data/camera.yml -l=0.026 -dp=../data/detector_params.yml -rm=../data/reference_markers_setup.yml

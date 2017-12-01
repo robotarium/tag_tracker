@@ -12,14 +12,6 @@ set(INCLUDE_CLIENT "mqttclient/src/")
 
 add_compile_options(-std=c++14)
 
-# Add Boost library support
-#find_package(Boost 1.45.0 COMPONENTS filesystem, regex)
-#find_package(Boost REQUIRED COMPONENTS filesystem, regex )
-#find_package(Boost REQUIRED COMPONENTS system, filesystem)
-find_package(Boost REQUIRED)
-find_package(Boost 1.54.0 REQUIRED COMPONENTS system filesystem)
-include_directories(${Boost_INCLUDE_DIRS})
-
 # Find OpenCV, you may need to set OpenCV_DIR variable
 # to the absolute path to the directory containing OpenCVConfig.cmake file
 # via the command line or GUI
