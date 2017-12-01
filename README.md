@@ -35,12 +35,14 @@ connections from the container with something like
 ```bash
   sudo xhost +
 ```
+For testing, use the video file provided in the submission.
 After the build process completes, you can test the container using an .mp4 file.
 ```bash
   sudo ./docker_test.sh name_of_container absolute_path_to_video
 ```
 The variable 'name_of_container' should be whatever you named the container
-in the previous step.  For example,
+in the previous step, and 'absolute_path_to_video' should be the absolute
+path the to submitted video file on your system.  For example,
 ```bash
   sudo ./docker_test.sh tag_tracker /home/robotarium/out.mp4
 ```
