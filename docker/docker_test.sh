@@ -9,6 +9,5 @@ docker run --rm -ti \
 	-e DISPLAY=$DISPLAY \
 	-v /tmp/.X11-unix:/tmp/.X11-unix:ro \
 	-v $2:/tag_tracker/out.mp4 \
-	--device=/dev/video0:/dev/video0 \
 	-w /tag_tracker/scripts/ \
 	$1 /bin/bash "/tag_tracker/scripts/detect_markers_test.sh" "../out.mp4"
