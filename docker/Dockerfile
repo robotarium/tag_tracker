@@ -79,7 +79,7 @@ RUN cd $PROGRAMDIR && \
 RUN apt-get -y install vim
 
 # Add this line to prevent caching
-ENV updated-adds-on 06-21-2017-4
+ENV updated-adds-on 06-21-2017-5
 
 # Now that openCV is installed, download the tag tracker and compile it!
 RUN git clone https://github.com/robotarium/tag_tracker.git && \
