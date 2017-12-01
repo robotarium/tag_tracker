@@ -24,20 +24,20 @@ which downloads a convenience script to install docker.
 Once docker is installed, build the tracker container.  
 ```bash
   cd path_to_tag_tracker/docker
-  ./docker_build.sh name_of_container
+  sudo ./docker_build.sh name_of_container
 ```
 The variable 'name_of_container' could be anything. For example,
 ```bash
-  ./docker_build.sh tag_tracker
+  sudo ./docker_build.sh tag_tracker
 ```
 After the build process completes, you can test the container using an .mp4 file.
 ```bash
-  ./docker_test.sh name_of_container absolute_path_to_video
+  sudo ./docker_test.sh name_of_container absolute_path_to_video
 ```
 The variable 'name_of_container' should be whatever you named the container
 in the previous step.  For example,
 ```bash
-  ./docker_test.sh tag_tracker /home/robotarium/out.mp4
+  sudo ./docker_test.sh tag_tracker /home/robotarium/out.mp4
 ```
 For the tracking window to show up, you'll most likely have to enable .x11
 connections from the container with something like
