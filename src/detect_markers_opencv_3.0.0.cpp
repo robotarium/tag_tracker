@@ -92,6 +92,7 @@ bool readReferenceMarkersSpecs(string reference_marker_setup_file, vector<int>& 
 /* End forward declarations */
 
 /* Global variables */
+
 json powerData;
 json status_data;
 std::map<std::string, vector<double>> robotImagePosition;
@@ -113,6 +114,9 @@ VideoCapture inputVideo;
 /* Framesize */
 int frameWidth  = 1280;
 int frameHeight = 720;
+
+/* End global variables */
+
 cv::Size frameSize = cv::Size(frameWidth, frameHeight);
 
 /* Function that generates a dictionary with a single marker from a base dictionary */
@@ -290,6 +294,7 @@ static void onMouse(int event, int x, int y, int, void*) {
     }
 }
 
+/* Finds a homography to a reference plane by looking for reference markers */
 bool find_homography_to_reference_markers_image_plane(
   VideoCapture& cam,
   Ptr<aruco::Dictionary> dictionary,
@@ -310,11 +315,11 @@ bool find_homography_to_reference_markers_image_plane(
 
       cam >> img;
 
+      /* Reference markers could be anywhere in the image, so look at the whole thing */
       aruco::detectMarkers(img, dictionary, corners, ids, detectorParams, rejected);
 
       if (ids.size() > 0) {
-
-        // Clear the reference markeers in the image plane.
+        /* Clear the reference markeers in the image plane */
         reference_markers_image_plane.clear();
 
         for (int i = 0; i < reference_marker_ids.size(); i++) {
@@ -325,8 +330,8 @@ bool find_homography_to_reference_markers_image_plane(
           }
         }
 
+        /* Get the center of the reference markers */
         if (reference_markers_image_plane.size() == reference_marker_ids.size()){
-
           vector< Point2f > image_points, world_points;
           for (int i = 0; i < reference_marker_ids.size(); i++) {
             reference_markers_image_plane_toundistort[i][0][0] = 0.25*(reference_markers_image_plane[i][0].x+reference_markers_image_plane[i][1].x+reference_markers_image_plane[i][2].x+reference_markers_image_plane[i][3].x);
@@ -341,7 +346,7 @@ bool find_homography_to_reference_markers_image_plane(
             Mat::eye(Size(3,3), CV_32F),
             projMatrix
           );
-
+          
           for (int i = 0; i < reference_marker_ids.size(); i++){
             image_points.push_back(
               Point2f(

@@ -14,8 +14,8 @@ The docker build should work on any **x87** system running Ubuntu **16.04** (or
 
 Download [docker](https://docs.docker.com/engine/installation/linux/docker-ce/ubuntu/)
 and install on your machine.  The convenience script option may be particularly
-useful.  Rather than adding a repo, you can use 
-```bash 
+useful.  Rather than adding a repo, you can use
+```bash
   curl -fsSL get.docker.com -o get-docker.sh
   sudo sh get-docker.sh
 ```
@@ -24,17 +24,17 @@ which downloads a convenience script to install docker.
 Once docker is installed, build the tracker container.  
 ```bash
   cd path_to_tag_tracker/docker
-  ./docker_build name_of_container
+  ./docker_build.sh name_of_container
 ```
-For example,
+The variable 'name_of_container' could be anything. For example,
 ```bash
-  ./docker_build tag_tracker
+  ./docker_build.sh tag_tracker
 ```
 After the build process completes, you can test the container using an .mp4 file.
 ```bash
-  ./docker_test name_of_container absolute_path_to_video
+  ./docker_test.sh name_of_container absolute_path_to_video
 ```
 For example
 ```bash
-  ./docker_test tag_tracker /home/robotarium/out.mp4
+  ./docker_test.sh tag_tracker /home/robotarium/out.mp4
 ```
