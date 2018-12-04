@@ -38,10 +38,11 @@ the use of this software, even if advised of the possibility of such damage.
 
 #include <iomanip>
 
-#include <opencv2/highgui.hpp>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/core.hpp>
-#include <opencv2/aruco.hpp>
+//#include <opencv2/highgui.hpp>
+//#include <opencv2/imgproc.hpp>
+//#include <opencv2/core.hpp>
+//#include <opencv2/aruco.hpp>
+#include "opencv2/opencv.hpp"
 
 #include <vector>
 #include <iostream>
@@ -182,7 +183,7 @@ bool        outputVideoWithMarkers = false;
 //string codec = "MPG";
 string codec = "MP4";
 //int videoCodec = CV_FOURCC('M','P','E','G');
-int videoCodec = cv::CV_FOURCC('X', '2', '6', '4');
+int videoCodec = CV_FOURCC('X', '2', '6', '4');
 
 /* Time stamps */
 auto    lastVideoFrameWrite = Time::now();
@@ -893,8 +894,8 @@ int main(int argc, char *argv[]) {
 	inputVideo.open(camId);
 
   /* Set resolution to 1280 x 720 */
-	inputVideo.set(cv::CV_CAP_PROP_FRAME_WIDTH, frameWidth);
-	inputVideo.set(cv::CV_CAP_PROP_FRAME_HEIGHT, frameHeight);
+	inputVideo.set(CV_CAP_PROP_FRAME_WIDTH, frameWidth);
+	inputVideo.set(CV_CAP_PROP_FRAME_HEIGHT, frameHeight);
 
 	std::cout << "Image size: " << frameSize.width
 						<< " / " << frameSize.height << std::endl;
@@ -1129,15 +1130,15 @@ int main(int argc, char *argv[]) {
             robotImagePosition[id] = rip;
 
             if (clickedOnGritsbot[id]) {
-                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, xStr, Point(u + 20, v + -5), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, yStr, Point(u + 20, v + 10), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
-                putText(imageCopy, thetaStr, Point(u + 20, v + 25), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
+                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 255, 255));
             } else if (closeToGritsbot[id]) {
-                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, xStr, Point(u + 20, v + -5), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, yStr, Point(u + 20, v + 10), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
-                putText(imageCopy, thetaStr, Point(u + 20, v + 25), cv::CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+                putText(imageCopy, powerDataStr, Point(u + 20, v - 20), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+                putText(imageCopy, xStr, Point(u + 20, v + -5), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+                putText(imageCopy, yStr, Point(u + 20, v + 10), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
+                putText(imageCopy, thetaStr, Point(u + 20, v + 25), CV_FONT_NORMAL, 0.5, Scalar(0, 180, 180));
 						}
           }
 
