@@ -88,3 +88,11 @@ RUN git clone https://github.com/robotarium/tag_tracker.git && \
     mkdir build && cd build && \
     cmake .. && \
     make -j $(($(nproc) - 2))
+
+# Get Vizier framework
+RUN git clone https://github.com/robotarium/vizier.git
+RUN pip3 install vizier/python/
+
+# Get UDP service
+RUN git clone https://github.com/robotarium/udpservice.git
+RUN pip3 install udpservice/

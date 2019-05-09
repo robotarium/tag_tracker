@@ -1,4 +1,4 @@
-#/bin/bash
+#!/bin/bash
 
 # Make sure that 'sudo xhost +' has been run before this script!!!!
 
