@@ -80,7 +80,7 @@ const char* keys  =
 
 /**
  */
-bool readCameraParameters(string filename, Mat& camMatrix, Mat& distCoeffs) {
+bool readCameraParameters(const string& filename, Mat& camMatrix, Mat& distCoeffs) {
     FileStorage fs(filename, FileStorage::READ);
     if(!fs.isOpened()) {
         return false;
@@ -94,7 +94,7 @@ bool readCameraParameters(string filename, Mat& camMatrix, Mat& distCoeffs) {
 
 /**
  */
-bool readDetectorParameters(string filename, Ptr<aruco::DetectorParameters>& params) {
+bool readDetectorParameters(const string& filename, Ptr<aruco::DetectorParameters>& params) {
     FileStorage fs(filename, FileStorage::READ);
     if(!fs.isOpened()) {
         return false;
@@ -175,11 +175,14 @@ int main(int argc, char *argv[]) {
     }
 
     VideoCapture inputVideo;
-    int waitTime = 10;
+    int waitTime = 1;
     inputVideo.open(camId);
 
-    inputVideo.set(3, 1280);
-    inputVideo.set(4, 720);
+    // THIS CODEC NEEDS TO BE CHANGED HERE FOR IT TO WORK
+    int codec = VideoWriter::fourcc('M','J','P','G'); 
+    inputVideo.set(CAP_PROP_FOURCC, codec);
+    inputVideo.set(3, 1920);
+    inputVideo.set(4, 1080);
 
     if(!inputVideo.isOpened()) {
         cerr << "Could not open video device" << endl;
@@ -189,23 +192,25 @@ int main(int argc, char *argv[]) {
     double totalTime = 0;
     int totalIterations = 0;
 
+    double tick = (double) getTickCount();
+    auto start = chrono::steady_clock::now();
+    Mat image;
+
     while(inputVideo.grab()) {
-        Mat image, imageCopy;
         inputVideo.retrieve(image);
-
-        double tick = (double) getTickCount();
-
+                
         vector<int> ids;
         vector<vector<Point2f>> corners, rejected;
         vector<Vec3d> rvecs, tvecs;
 
+        tick = (double) getTickCount();
         // detect markers and estimate pose
         aruco::detectMarkers(image, dictionary, corners, ids, detectorParams, rejected);
         if(estimatePose && ids.size() > 0)
             aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix, distCoeffs, rvecs,
                                              tvecs);
 
-        double currentTime = ((double)getTickCount() - tick) / getTickFrequency();
+        double currentTime = ((double) getTickCount() - tick) / getTickFrequency();
         totalTime += currentTime;
         totalIterations++;
         if(totalIterations % 30 == 0) {
@@ -214,23 +219,31 @@ int main(int argc, char *argv[]) {
         }
 
         // draw results
-        image.copyTo(imageCopy);
+        //image.copyTo(imageCopy);
         if(ids.size() > 0) {
-            aruco::drawDetectedMarkers(imageCopy, corners, ids);
+            aruco::drawDetectedMarkers(image, corners, ids);
 
             if(estimatePose) {
-                for(unsigned int i = 0; i < ids.size(); i++)
-                    aruco::drawAxis(imageCopy, camMatrix, distCoeffs, rvecs[i], tvecs[i],
-                                    markerLength * 0.5f);
+                for(size_t i = 0; i < ids.size(); ++i) {
+                    aruco::drawAxis(image, camMatrix, distCoeffs, rvecs[i], tvecs[i], markerLength * 0.5f);
+                }
             }
         }
 
         if(showRejected && rejected.size() > 0)
-            aruco::drawDetectedMarkers(imageCopy, rejected, noArray(), Scalar(100, 0, 255));
+            aruco::drawDetectedMarkers(image, rejected, noArray(), Scalar(100, 0, 255));
 
-        imshow("out", imageCopy);
-        char key = (char)waitKey(waitTime);
+        //currentTime = ((double) getTickCount() - tick) / getTickFrequency();
+        auto end = chrono::steady_clock::now();
+        cout << "Time to grab: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << endl;
+
+
+        imshow("out", image);
+        char key = (char) waitKey(waitTime);
         if(key == 27) break;
+
+        tick = getTickCount();
+        start = chrono::steady_clock::now();
     }
 
     return 0;

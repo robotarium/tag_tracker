@@ -6,6 +6,7 @@
 # Second argument is absolute path to test video file
 
 docker run --rm -ti \
+	--privileged \
 	-e DISPLAY=$DISPLAY \
 	-v /tmp/.X11-unix:/tmp/.X11-unix:ro \
 	--device /dev/video0:/dev/video0 \
