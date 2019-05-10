@@ -1,2 +1,2 @@
 #/bin/bash
-docker build --tag $1 .
+docker build --tag robotarium:tag_tracker .
