@@ -210,13 +210,13 @@ int main(int argc, char *argv[]) {
             aruco::estimatePoseSingleMarkers(corners, markerLength, camMatrix, distCoeffs, rvecs,
                                              tvecs);
 
-        double currentTime = ((double) getTickCount() - tick) / getTickFrequency();
+        /*double currentTime = ((double) getTickCount() - tick) / getTickFrequency();
         totalTime += currentTime;
         totalIterations++;
         if(totalIterations % 30 == 0) {
             cout << "Detection Time = " << currentTime * 1000 << " ms "
                  << "(Mean = " << 1000 * totalTime / double(totalIterations) << " ms)" << endl;
-        }
+        }*/
 
         // draw results
         //image.copyTo(imageCopy);
@@ -235,7 +235,7 @@ int main(int argc, char *argv[]) {
 
         //currentTime = ((double) getTickCount() - tick) / getTickFrequency();
         auto end = chrono::steady_clock::now();
-        cout << "Time to grab: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << endl;
+        cout << "Loop time: " << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << endl;
 
 
         imshow("out", image);
